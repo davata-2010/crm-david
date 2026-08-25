@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import PageHeader from "@/components/PageHeader";
 import ProfileForm from "@/components/ProfileForm";
 import DataSettings from "@/components/DataSettings";
+import InstallApp from "@/components/InstallApp";
 import TeamSettings from "@/components/TeamSettings";
 import { ApiSettings, FieldsSettings } from "@/components/ApiSettings";
 import { getSession } from "@/lib/workspace";
@@ -20,6 +21,7 @@ const TABS: [string, string][] = [
   ["api", "API"],
   ["audit", "Historial"],
   ["data", "Datos"],
+  ["app", "Aplicación"],
 ];
 
 const ACTION_LABEL: Record<string, string> = {
@@ -216,6 +218,8 @@ export default async function SettingsPage({
                 </div>
               </div>
             )}
+
+            {tab === "app" && <InstallApp />}
 
             {tab === "data" && (
               <DataSettings

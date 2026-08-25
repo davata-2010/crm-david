@@ -86,6 +86,18 @@ Botones de resumen de cuenta, borrador de email de seguimiento y puntuación de 
 
 **Requiere configurar `ANTHROPIC_API_KEY`** en las variables de entorno de Netlify. Sin ella, los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
 
+### Instalable como aplicación (PWA)
+
+Aurum se instala en móvil y ordenador desde el propio navegador: sin tiendas, sin cuenta de desarrollador y sin coste. Incluye manifiesto, iconos (normales y *maskable*), service worker y pantalla de sin conexión.
+
+- **Android / Chrome:** menú ⋮ → *Instalar aplicación*.
+- **iPhone / iPad:** Safari → Compartir → *Añadir a pantalla de inicio*. En iOS sólo funciona desde Safari.
+- **Ordenador (Chrome o Edge):** icono de instalar en la barra de direcciones, o menú ⋮ → *Instalar Aurum*.
+
+También hay un botón de instalación en **Ajustes → Aplicación**, que aparece cuando el navegador lo permite.
+
+El service worker es deliberadamente conservador: cachea sólo el armazón estático y la pantalla de sin conexión. **No cachea datos ni respuestas de la API**, porque enseñar un pipeline de hace tres días sería peor que no enseñar nada. Los iconos se regeneran con `npm run icons`.
+
 ### Otras piezas
 
 - **Historial de cambios** por triggers en Postgres: quién creó, editó, borró o restauró qué y qué campos cambiaron. Visible en Ajustes → Historial.
