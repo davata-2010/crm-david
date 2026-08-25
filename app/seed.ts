@@ -131,58 +131,81 @@ export async function seedDemoData() {
   if (dErr) return { error: dErr.message };
   const mainDeal = deals!.find((d) => d.name === "Agente de soporte RAG");
 
+  /**
+   * Todas las actividades pasan por aquí para que salgan con la MISMA forma.
+   * supabase-js iguala las claves de un insert por lotes rellenando con null
+   * las que falten en algún objeto, así que un array heterogéneo mandaría
+   * completed: null y rompería el NOT NULL de la columna.
+   */
+  const activity = (a: {
+    contactName?: string;
+    dealId?: string | null;
+    kind: string;
+    title: string;
+    body: string;
+    author?: string;
+    occurredAt: string;
+    dueDate?: string | null;
+  }) => ({
+    owner_id: user.id,
+    workspace_id: ws,
+    contact_id: a.contactName ? contactId.get(a.contactName) ?? null : null,
+    deal_id: a.dealId ?? null,
+    kind: a.kind,
+    title: a.title,
+    body: a.body,
+    author: a.author ?? author,
+    occurred_at: a.occurredAt,
+    due_date: a.dueDate ?? null,
+    completed: false,
+  });
+
+  const dealByContact = (name: string) =>
+    deals!.find((d) => d.contact_id === contactId.get(name))?.id ?? null;
+  const dealByName = (name: string) => deals!.find((d) => d.name === name)?.id ?? null;
+
   const activities = [
-    ...TIMELINE.map((t) => ({
-      owner_id: user.id,
-      workspace_id: ws,
-      contact_id: contactId.get("Elena Vidal") ?? null,
-      deal_id: mainDeal?.id ?? null,
-      kind: t.kind,
-      title: t.title,
-      body: t.body,
-      author: t.author === "Marta Ruiz" ? author : t.author,
-      occurred_at: daysAgo(t.days),
-    })),
-    ...UPCOMING.map((u) => ({
-      owner_id: user.id,
-      workspace_id: ws,
-      contact_id: contactId.get(u.contact) ?? null,
-      deal_id: deals!.find((d) => d.contact_id === contactId.get(u.contact))?.id ?? null,
-      kind: u.kind,
-      title: u.title,
-      body: u.body,
-      author,
-      occurred_at: daysAhead(u.inDays),
-      due_date: daysAhead(u.inDays),
-      completed: false,
-    })),
+    ...TIMELINE.map((t) =>
+      activity({
+        contactName: "Elena Vidal",
+        dealId: mainDeal?.id ?? null,
+        kind: t.kind,
+        title: t.title,
+        body: t.body,
+        author: t.author === "Marta Ruiz" ? author : t.author,
+        occurredAt: daysAgo(t.days),
+      })
+    ),
+    ...UPCOMING.map((u) =>
+      activity({
+        contactName: u.contact,
+        dealId: dealByContact(u.contact),
+        kind: u.kind,
+        title: u.title,
+        body: u.body,
+        occurredAt: daysAhead(u.inDays),
+        dueDate: daysAhead(u.inDays),
+      })
+    ),
     // Dos tareas ya vencidas, para que se vea el aviso rojo del dashboard.
-    {
-      owner_id: user.id,
-      workspace_id: ws,
-      contact_id: contactId.get("Marc Oliveras") ?? null,
-      deal_id: deals!.find((d) => d.name === "Voice agent para reservas")?.id ?? null,
+    activity({
+      contactName: "Marc Oliveras",
+      dealId: dealByName("Voice agent para reservas"),
       kind: "Llamada",
       title: "Llamar a Marc: sigue sin responder",
       body: "Tercer intento. Si no contesta, mover a nurturing.",
-      author,
-      occurred_at: daysAgo(2),
-      due_date: daysAgo(2),
-      completed: false,
-    },
-    {
-      owner_id: user.id,
-      workspace_id: ws,
-      contact_id: contactId.get("Irene Castells") ?? null,
-      deal_id: deals!.find((d) => d.name === "Automatización de onboarding")?.id ?? null,
+      occurredAt: daysAgo(2),
+      dueDate: daysAgo(2),
+    }),
+    activity({
+      contactName: "Irene Castells",
+      dealId: dealByName("Automatización de onboarding"),
       kind: "Tarea",
       title: "Enviar estimación de esfuerzo a Quanta Labs",
       body: "Pidieron desglose por fases antes del comité.",
-      author,
-      occurred_at: daysAgo(5),
-      due_date: daysAgo(5),
-      completed: false,
-    },
+      occurredAt: daysAgo(5),
+      dueDate: daysAgo(5),
+    }),
   ];
 
   const { error: aErr } = await supabase.from("activities").insert(activities);
