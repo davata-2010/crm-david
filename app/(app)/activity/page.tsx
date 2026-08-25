@@ -10,6 +10,7 @@ export default async function ActivityPage() {
   const { data } = await supabase
     .from("activities")
     .select("*, contact:contacts(id,name), deal:deals(id,name)")
+    .is("deleted_at", null)
     .order("occurred_at", { ascending: false })
     .limit(500);
 
@@ -22,7 +23,7 @@ export default async function ActivityPage() {
         title="Actividad"
         subtitle={`${activities.length} registros · clic derecho para exportar o eliminar`}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <ActivityFeed activities={activities} />
       </div>
     </>

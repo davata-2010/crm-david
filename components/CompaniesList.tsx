@@ -179,9 +179,9 @@ export default function CompaniesList({ rows }: { rows: CompanyRow[] }) {
         <div className="text-[12px] text-ink-400">{filtered.length} empresas</div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
+      <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
         {filtered.length === 0 && (
-          <div className="panel col-span-2 px-6 py-12 text-center text-[12.5px] text-ink-400">
+          <div className="panel px-6 py-12 xl:col-span-2 text-center text-[12.5px] text-ink-400">
             No hay empresas.{" "}
             <Link href="/companies/new" className="text-gold">
               Crear la primera

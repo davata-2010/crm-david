@@ -1,67 +1,86 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import PageHeader from "@/components/PageHeader";
 import ProfileForm from "@/components/ProfileForm";
 import DataSettings from "@/components/DataSettings";
+import TeamSettings from "@/components/TeamSettings";
+import { ApiSettings, FieldsSettings } from "@/components/ApiSettings";
+import { getSession } from "@/lib/workspace";
 import { GOLD, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
-import { eur, initials, relative } from "@/lib/format";
-import type { Deal, Profile } from "@/lib/types";
+import { eur, relative } from "@/lib/format";
+import type { AuditEntry, CustomField, Deal, Invitation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const TABS: [string, string][] = [
   ["profile", "Perfil"],
-  ["pipeline", "Pipeline"],
   ["team", "Equipo"],
-  ["integrations", "Integraciones"],
+  ["pipeline", "Pipeline"],
+  ["fields", "Campos"],
+  ["api", "API"],
+  ["audit", "Historial"],
   ["data", "Datos"],
 ];
 
-const INTEGRATIONS = [
-  { mark: "GC", name: "Google Calendar", desc: "Sincroniza reuniones y crea actividades automáticamente." },
-  { mark: "GM", name: "Gmail", desc: "Registra hilos de email en el contacto correspondiente." },
-  { mark: "SL", name: "Slack", desc: "Avisos de deals ganados en #revenue." },
-  { mark: "ST", name: "Stripe", desc: "Importa facturación y retainers activos." },
-  { mark: "LN", name: "LinkedIn", desc: "Enriquecimiento de leads entrantes." },
-  { mark: "NT", name: "Notion", desc: "Vincula propuestas y documentos de delivery." },
-];
+const ACTION_LABEL: Record<string, string> = {
+  create: "creó",
+  update: "editó",
+  delete: "envió a la papelera",
+  restore: "restauró",
+  purge: "borró definitivamente",
+};
+
+const ENTITY_LABEL: Record<string, string> = {
+  contacts: "el contacto",
+  deals: "el deal",
+  companies: "la empresa",
+};
 
 export default async function SettingsPage({
   searchParams,
 }: {
   searchParams: { tab?: string };
 }) {
-  const supabase = createClient();
+  const s = await getSession();
+  const { supabase, workspace, members, isAdmin } = s;
   const tab = searchParams.tab || "profile";
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const host = headers().get("host") ?? "localhost:3000";
+  const proto = host.startsWith("localhost") ? "http" : "https";
+  const origin = `${proto}://${host}`;
 
   const [
-    { data: profileData },
     { data: dealsData },
     contactCount,
     companyCount,
     activityCount,
+    { data: invitations },
+    { data: fields },
+    { data: audit },
   ] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", user!.id).maybeSingle(),
-    supabase.from("deals").select("id, stage, value"),
-    supabase.from("contacts").select("id", { count: "exact", head: true }),
-    supabase.from("companies").select("id", { count: "exact", head: true }),
-    supabase.from("activities").select("id", { count: "exact", head: true }),
+    supabase.from("deals").select("id, stage, value").is("deleted_at", null),
+    supabase.from("contacts").select("id", { count: "exact", head: true }).is("deleted_at", null),
+    supabase.from("companies").select("id", { count: "exact", head: true }).is("deleted_at", null),
+    supabase.from("activities").select("id", { count: "exact", head: true }).is("deleted_at", null),
+    supabase.from("invitations").select("*").order("created_at", { ascending: false }),
+    supabase.from("custom_fields").select("*").order("created_at", { ascending: true }),
+    supabase
+      .from("audit_log")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(120),
   ]);
 
-  const profile = profileData as Profile | null;
   const deals = (dealsData ?? []) as Deal[];
+  const entries = (audit ?? []) as AuditEntry[];
 
   return (
     <>
-      <PageHeader crumb="Workspace" title="Ajustes" />
+      <PageHeader crumb="Workspace" title="Ajustes" subtitle={workspace.name} />
 
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
-        <div className="grid max-w-[1060px] grid-cols-[190px_1fr] items-start gap-[26px]">
-          <div className="sticky top-0 flex flex-col gap-0.5">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
+        <div className="grid max-w-[1100px] grid-cols-1 items-start gap-6 lg:grid-cols-[180px_1fr] lg:gap-[26px]">
+          <div className="flex flex-row flex-wrap gap-1 lg:sticky lg:top-0 lg:flex-col lg:gap-0.5">
             {TABS.map(([key, label]) => {
               const active = tab === key;
               return (
@@ -80,32 +99,36 @@ export default async function SettingsPage({
             })}
           </div>
 
-          <div className="flex flex-col gap-4">
-            {tab === "profile" && (
-              <ProfileForm profile={profile} email={user!.email!} />
+          <div className="flex min-w-0 flex-col gap-4">
+            {tab === "profile" && <ProfileForm profile={s.profile} email={s.email} />}
+
+            {tab === "team" && (
+              <TeamSettings
+                workspace={workspace}
+                members={members}
+                invitations={(invitations ?? []) as Invitation[]}
+                isAdmin={isAdmin}
+                currentUserId={s.userId}
+              />
             )}
 
             {tab === "pipeline" && (
               <div className="panel p-[26px]">
-                <div className="flex items-baseline gap-3">
-                  <div className="flex-1">
-                    <div className="text-[15px] font-semibold tracking-[-0.01em]">
-                      Etapas del pipeline
-                    </div>
-                    <div className="mt-1 text-[12.5px] text-ink-350">
-                      Probabilidad por defecto usada para el forecast ponderado.
-                    </div>
-                  </div>
+                <div className="text-[15px] font-semibold tracking-[-0.01em]">
+                  Etapas del pipeline
+                </div>
+                <div className="mt-1 text-[12.5px] text-ink-350">
+                  Probabilidad por defecto usada para el forecast ponderado.
                 </div>
                 <div className="mt-3.5">
                   {STAGES.map((name, i) => {
                     const list = deals.filter((d) => d.stage === i);
                     const total = list.reduce((a, d) => a + Number(d.value), 0);
                     return (
-                      <div key={name} className="hair-t flex items-center gap-3.5 py-3.5">
+                      <div key={name} className="hair-t flex flex-wrap items-center gap-3.5 py-3.5">
                         <span
                           className="h-[7px] w-[7px] rounded-full"
-                          style={{ background: i >= 4 ? GOLD : "#3A3A3A" }}
+                          style={{ background: i === 6 ? "#7A3A3A" : i >= 4 ? GOLD : "#3A3A3A" }}
                         />
                         <span className="flex-1 text-[13.5px] font-medium">{name}</span>
                         <span className="w-[130px] text-[12px] text-ink-350">
@@ -129,37 +152,67 @@ export default async function SettingsPage({
               </div>
             )}
 
-            {tab === "team" && (
+            {tab === "fields" && (
+              <FieldsSettings fields={(fields ?? []) as CustomField[]} isAdmin={isAdmin} />
+            )}
+
+            {tab === "api" && (
+              <ApiSettings workspace={workspace} isAdmin={isAdmin} origin={origin} />
+            )}
+
+            {tab === "audit" && (
               <div className="panel p-[26px]">
-                <div className="flex items-baseline gap-3">
-                  <div className="flex-1">
-                    <div className="text-[15px] font-semibold tracking-[-0.01em]">Equipo</div>
-                    <div className="mt-1 text-[12.5px] text-ink-350">
-                      Este workspace es individual: cada cuenta ve sólo sus propios datos.
-                    </div>
-                  </div>
+                <div className="text-[15px] font-semibold tracking-[-0.01em]">
+                  Historial de cambios
                 </div>
-                <div className="mt-3.5">
-                  <div className="hair-t flex items-center gap-3.5 py-3.5">
-                    <div className="grid h-8 w-8 place-items-center rounded-full border border-[rgba(245,245,245,0.08)] bg-ink-800 text-[11.5px] font-semibold text-ink-150">
-                      {initials(profile?.full_name || user!.email!)}
+                <div className="mt-1 text-[12.5px] text-ink-350">
+                  Cada alta, edición y borrado queda registrado en la base de datos.
+                </div>
+                <div className="mt-3">
+                  {entries.length === 0 && (
+                    <div className="py-6 text-[12.5px] text-ink-400">
+                      Todavía no hay movimientos registrados.
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[13.5px] font-medium">
-                        {profile?.full_name || user!.email!.split("@")[0]}
+                  )}
+                  {entries.map((e) => {
+                    const who =
+                      members.find((m) => m.user_id === e.user_id)?.profile?.full_name ??
+                      "Alguien";
+                    const changed = Object.keys(e.changes ?? {});
+                    return (
+                      <div key={e.id} className="hair-t py-3">
+                        <div className="flex flex-wrap items-baseline gap-2 text-[12.5px]">
+                          <span className="font-medium">{who}</span>
+                          <span className="text-ink-350">
+                            {ACTION_LABEL[e.action] ?? e.action}{" "}
+                            {ENTITY_LABEL[e.entity] ?? e.entity}
+                          </span>
+                          <span className="font-medium">{e.label || "(sin nombre)"}</span>
+                          <div className="flex-1" />
+                          <span className="text-[11px] text-ink-450">
+                            {relative(e.created_at)}
+                          </span>
+                        </div>
+                        {changed.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {changed.slice(0, 6).map((k) => (
+                              <span
+                                key={k}
+                                className="rounded border border-hair bg-ink-800 px-1.5 py-[2px] font-mono text-[10px] text-ink-400"
+                              >
+                                {k}
+                              </span>
+                            ))}
+                            {changed.length > 6 && (
+                              <span className="text-[10px] text-ink-500">
+                                +{changed.length - 6}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-[11.5px] text-ink-400">{user!.email}</div>
-                    </div>
-                    <span
-                      className="rounded-full px-[11px] py-1 text-[11px] font-semibold"
-                      style={{ background: GOLD, color: "#080808", border: `1px solid ${GOLD}` }}
-                    >
-                      Owner
-                    </span>
-                    <span className="w-[110px] text-right text-[12px] text-ink-350">
-                      {relative(profile?.created_at ?? null)}
-                    </span>
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -172,56 +225,8 @@ export default async function SettingsPage({
                   Deals: deals.length,
                   Actividades: activityCount.count ?? 0,
                 }}
+                isAdmin={isAdmin}
               />
-            )}
-
-            {tab === "integrations" && (
-              <div className="flex flex-col gap-4">
-                <div className="panel p-[26px]">
-                  <div className="text-[15px] font-semibold tracking-[-0.01em]">
-                    Integraciones
-                  </div>
-                  <div className="mt-1 text-[12.5px] text-ink-350">
-                    Ninguna está conectada todavía en este workspace.
-                  </div>
-                  <div className="mt-[18px] grid grid-cols-2 gap-3">
-                    {INTEGRATIONS.map((i) => (
-                      <div
-                        key={i.name}
-                        className="rounded-[11px] border border-hair bg-ink-800 px-[17px] py-4"
-                      >
-                        <div className="flex items-center gap-[11px]">
-                          <div className="grid h-[30px] w-[30px] place-items-center rounded-lg bg-ink-700 text-[12px] font-semibold text-ink-50">
-                            {i.mark}
-                          </div>
-                          <div className="flex-1 text-[13.5px] font-medium">{i.name}</div>
-                          <span className="text-[10.5px] font-semibold tracking-[0.04em] text-ink-400">
-                            SIN CONECTAR
-                          </span>
-                        </div>
-                        <div className="mt-2.5 text-[11.5px] leading-[1.5] text-ink-350">
-                          {i.desc}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="panel p-[26px]">
-                  <div className="text-[15px] font-semibold tracking-[-0.01em]">
-                    Proyecto Supabase
-                  </div>
-                  <div className="mt-1 text-[12.5px] text-ink-350">
-                    Tus datos viven aquí. La clave anónima es pública por diseño; el acceso lo
-                    controla RLS.
-                  </div>
-                  <div className="mt-4 flex items-center gap-2.5">
-                    <div className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-[10px] border border-[rgba(245,245,245,0.09)] bg-ink-925 px-[13px] py-3 font-mono text-[12.5px] text-ink-150">
-                      {process.env.NEXT_PUBLIC_SUPABASE_URL}
-                    </div>
-                  </div>
-                </div>
-              </div>
             )}
           </div>
         </div>

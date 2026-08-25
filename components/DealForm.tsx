@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createDeal, updateDeal, deleteDeal } from "@/app/actions";
 import { GOLD, LOST, LOST_REASONS, PROJECT_TYPES, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, shortDate } from "@/lib/format";
-import type { Company, Contact, Deal } from "@/lib/types";
+import type { Company, Contact, CustomField, Deal, Membership } from "@/lib/types";
 
 type Opt = Pick<Company, "id" | "name">;
 
@@ -16,6 +16,8 @@ export default function DealForm({
   defaultContactId,
   defaultCompanyId,
   defaultStage,
+  members = [],
+  fields = [],
 }: {
   companies: Opt[];
   contacts: Pick<Contact, "id" | "name" | "company_id">[];
@@ -23,6 +25,8 @@ export default function DealForm({
   defaultContactId?: string;
   defaultCompanyId?: string;
   defaultStage?: number;
+  members?: Membership[];
+  fields?: CustomField[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -49,6 +53,7 @@ export default function DealForm({
     notes: deal?.notes ?? "",
     tags: (deal?.tags ?? []).join(", "),
     lost_reason: deal?.lost_reason ?? "",
+    assigned_to: deal?.assigned_to ?? "",
   });
 
   const set = (k: keyof typeof form) => (v: string) => {
@@ -68,6 +73,10 @@ export default function DealForm({
     e.preventDefault();
     const fd = new FormData();
     Object.entries(form).forEach(([k, v]) => fd.set(k, v));
+    // Los campos personalizados viven fuera del estado controlado.
+    new FormData(e.currentTarget as HTMLFormElement).forEach((v, k) => {
+      if (k.startsWith("custom__")) fd.set(k, String(v));
+    });
     start(async () => {
       setError(null);
       const res = deal ? await updateDeal(deal.id, fd) : await createDeal(fd);
@@ -87,7 +96,7 @@ export default function DealForm({
   return (
     <form
       onSubmit={submit}
-      className="grid max-w-[1000px] grid-cols-[1.5fr_1fr] items-start gap-4"
+      className="grid max-w-[1000px] grid-cols-1 items-start gap-4 lg:grid-cols-[1.5fr_1fr]"
     >
       <div className="panel p-7">
         <div className="text-[15px] font-semibold tracking-[-0.01em]">
@@ -108,7 +117,7 @@ export default function DealForm({
             />
           </Label>
 
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <Label text="Cuenta ·">
               <select
                 className="field"
@@ -147,7 +156,7 @@ export default function DealForm({
             </Label>
           </div>
 
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <Label text="Valor ·">
               <div className="flex items-center rounded-[10px] border border-[rgba(245,245,245,0.09)] bg-ink-925 px-[13px] focus-within:border-gold">
                 <span className="text-[13.5px] font-semibold text-gold">€</span>
@@ -194,6 +203,23 @@ export default function DealForm({
             />
           )}
 
+          {members.length > 0 && (
+            <Label text="Responsable">
+              <select
+                className="field"
+                value={form.assigned_to}
+                onChange={(e) => set("assigned_to")(e.target.value)}
+              >
+                <option value="">Sin asignar</option>
+                {members.map((m) => (
+                  <option key={m.user_id} value={m.user_id}>
+                    {m.profile?.full_name || m.profile?.email || "Miembro"}
+                  </option>
+                ))}
+              </select>
+            </Label>
+          )}
+
           <Label text="Etiquetas">
             <input
               className="field"
@@ -202,6 +228,8 @@ export default function DealForm({
               placeholder="urgente, upsell, q4"
             />
           </Label>
+
+          <CustomFields fields={fields} values={deal?.custom ?? {}} />
 
           <Label text="Notas">
             <textarea
@@ -345,6 +373,68 @@ function Chips({
             >
               {o}
             </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CustomFields({
+  fields,
+  values,
+}: {
+  fields: CustomField[];
+  values: Record<string, unknown>;
+}) {
+  if (fields.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-[9px] text-[11px] uppercase tracking-[0.1em] text-ink-300">
+        Campos personalizados
+      </div>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        {fields.map((f) => {
+          const name = `custom__${f.key}`;
+          const value = values?.[f.key];
+          if (f.type === "select")
+            return (
+              <div key={f.id}>
+                <div className="mb-1.5 text-[11px] text-ink-350">{f.label}</div>
+                <select name={name} className="field" defaultValue={String(value ?? "")}>
+                  <option value="">—</option>
+                  {f.options.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          if (f.type === "checkbox")
+            return (
+              <label key={f.id} className="mt-6 flex items-center gap-2 text-[12.5px]">
+                <input
+                  type="checkbox"
+                  name={name}
+                  value="si"
+                  defaultChecked={String(value) === "si"}
+                  className="h-[13px] w-[13px] accent-[#FAC51C]"
+                />
+                {f.label}
+              </label>
+            );
+          return (
+            <div key={f.id}>
+              <div className="mb-1.5 text-[11px] text-ink-350">{f.label}</div>
+              <input
+                name={name}
+                type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
+                style={f.type === "date" ? { colorScheme: "dark" } : undefined}
+                className="field"
+                defaultValue={String(value ?? "")}
+              />
+            </div>
           );
         })}
       </div>

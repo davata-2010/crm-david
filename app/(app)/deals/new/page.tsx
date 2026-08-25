@@ -11,8 +11,8 @@ export default async function NewDealPage({
 }) {
   const supabase = createClient();
   const [{ data: companies }, { data: contacts }] = await Promise.all([
-    supabase.from("companies").select("id, name").order("name"),
-    supabase.from("contacts").select("id, name, company_id").order("name"),
+    supabase.from("companies").select("id, name").is("deleted_at", null).order("name"),
+    supabase.from("contacts").select("id, name, company_id").is("deleted_at", null).order("name"),
   ]);
 
   const stage = Number(searchParams.stage);
@@ -20,7 +20,7 @@ export default async function NewDealPage({
   return (
     <>
       <PageHeader crumb="Pipeline" title="Nuevo deal" />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <DealForm
           companies={companies ?? []}
           contacts={contacts ?? []}

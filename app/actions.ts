@@ -1,25 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getSession, WS_COOKIE } from "@/lib/workspace";
 import { STAGES, STAGE_PROBABILITY, type ContactStatus } from "@/lib/constants";
 import { initials } from "@/lib/format";
+import type { MemberRole } from "@/lib/types";
 
-async function ctx() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role")
-    .eq("id", user.id)
-    .maybeSingle();
-  const author = profile?.full_name || user.email!.split("@")[0];
-  return { supabase, user, author };
-}
+type Result = { error?: string; id?: string; count?: number; ok?: boolean };
 
 function revalidateAll() {
   revalidatePath("/", "layout");
@@ -37,14 +26,155 @@ const parseTags = (v: FormDataEntryValue | null) =>
     .filter(Boolean)
     .slice(0, 12);
 
-/* ------------------------------------------------------------------ empresas */
+/** Campos personalizados: llegan como custom__<key> en el FormData. */
+function parseCustom(formData: FormData) {
+  const out: Record<string, string> = {};
+  formData.forEach((value, key) => {
+    if (key.startsWith("custom__")) out[key.slice(8)] = String(value);
+  });
+  return out;
+}
 
-export async function createCompany(formData: FormData) {
-  const { supabase, user } = await ctx();
-  const { data, error } = await supabase
+async function guard() {
+  const s = await getSession();
+  if (!s.canWrite) throw new Error("Tu rol es de sólo lectura.");
+  return s;
+}
+
+/* ============================================================ workspace */
+
+export async function switchWorkspace(workspaceId: string): Promise<Result> {
+  const s = await getSession();
+  if (!s.workspaces.some((w) => w.id === workspaceId))
+    return { error: "No perteneces a ese workspace." };
+  cookies().set(WS_COOKIE, workspaceId, { path: "/", maxAge: 60 * 60 * 24 * 365 });
+  revalidateAll();
+  return { ok: true };
+}
+
+export async function renameWorkspace(name: string): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede renombrar el workspace." };
+  const { error } = await s.supabase
+    .from("workspaces")
+    .update({ name: name.trim() || "Mi agencia" })
+    .eq("id", s.workspace.id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function regenerateApiKey(): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede rotar la clave." };
+  const key = "aur_live_" + crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().slice(0, 8);
+  const { error } = await s.supabase
+    .from("workspaces")
+    .update({ api_key: key })
+    .eq("id", s.workspace.id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/* =============================================================== equipo */
+
+export async function inviteMember(email: string, role: MemberRole): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede invitar." };
+  const clean = email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { error: "Email no válido." };
+
+  const { data, error } = await s.supabase
+    .from("invitations")
+    .insert({
+      workspace_id: s.workspace.id,
+      email: clean,
+      role,
+      invited_by: s.userId,
+    })
+    .select("token")
+    .single();
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { id: data.token };
+}
+
+export async function revokeInvitation(id: string): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede revocar invitaciones." };
+  const { error } = await s.supabase.from("invitations").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function changeMemberRole(userId: string, role: MemberRole): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede cambiar roles." };
+  if (userId === s.userId) return { error: "No puedes cambiar tu propio rol." };
+  const { error } = await s.supabase
+    .from("memberships")
+    .update({ role })
+    .eq("workspace_id", s.workspace.id)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function removeMember(userId: string): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede quitar miembros." };
+  if (userId === s.userId) return { error: "No puedes quitarte a ti mismo." };
+  const { error } = await s.supabase
+    .from("memberships")
+    .delete()
+    .eq("workspace_id", s.workspace.id)
+    .eq("user_id", userId);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/** Acepta una invitación pendiente para el email de la sesión actual. */
+export async function acceptInvitation(token: string): Promise<Result> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Inicia sesión para aceptar la invitación." };
+
+  const { data: inv } = await supabase
+    .from("invitations")
+    .select("*")
+    .eq("token", token)
+    .maybeSingle();
+  if (!inv) return { error: "La invitación no existe o ya se usó." };
+  if (inv.accepted_at) return { error: "Esa invitación ya se había aceptado." };
+  if (inv.email.toLowerCase() !== user.email!.toLowerCase())
+    return { error: `Esta invitación es para ${inv.email}.` };
+
+  const { error } = await supabase
+    .from("memberships")
+    .insert({ workspace_id: inv.workspace_id, user_id: user.id, role: inv.role });
+  if (error && !error.message.includes("duplicate")) return { error: error.message };
+
+  await supabase.from("invitations").update({ accepted_at: new Date().toISOString() }).eq("id", inv.id);
+  cookies().set(WS_COOKIE, inv.workspace_id, { path: "/", maxAge: 60 * 60 * 24 * 365 });
+  revalidateAll();
+  return { ok: true };
+}
+
+/* ============================================================= empresas */
+
+export async function createCompany(formData: FormData): Promise<Result> {
+  const s = await guard();
+  const { data, error } = await s.supabase
     .from("companies")
     .insert({
-      owner_id: user.id,
+      workspace_id: s.workspace.id,
+      owner_id: s.userId,
       name: str(formData.get("name")),
       industry: str(formData.get("industry")),
       website: str(formData.get("website")),
@@ -59,9 +189,9 @@ export async function createCompany(formData: FormData) {
   return { id: data.id };
 }
 
-export async function updateCompany(id: string, formData: FormData) {
-  const { supabase } = await ctx();
-  const { error } = await supabase
+export async function updateCompany(id: string, formData: FormData): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase
     .from("companies")
     .update({
       name: str(formData.get("name")),
@@ -77,22 +207,16 @@ export async function updateCompany(id: string, formData: FormData) {
   return {};
 }
 
-export async function deleteCompany(id: string) {
-  const { supabase } = await ctx();
-  const { error } = await supabase.from("companies").delete().eq("id", id);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return {};
-}
+/* ============================================================ contactos */
 
-/* ----------------------------------------------------------------- contactos */
-
-export async function createContact(formData: FormData) {
-  const { supabase, user, author } = await ctx();
-  const { data, error } = await supabase
+export async function createContact(formData: FormData): Promise<Result> {
+  const s = await guard();
+  const { data, error } = await s.supabase
     .from("contacts")
     .insert({
-      owner_id: user.id,
+      workspace_id: s.workspace.id,
+      owner_id: s.userId,
+      assigned_to: str(formData.get("assigned_to")) || s.userId,
       name: str(formData.get("name")),
       email: str(formData.get("email")),
       phone: str(formData.get("phone")),
@@ -102,26 +226,28 @@ export async function createContact(formData: FormData) {
       timezone: str(formData.get("timezone")) || "CET · Madrid",
       company_id: str(formData.get("company_id")) || null,
       tags: parseTags(formData.get("tags")),
+      custom: parseCustom(formData),
     })
     .select("id")
     .single();
   if (error) return { error: error.message };
 
-  await supabase.from("activities").insert({
-    owner_id: user.id,
+  await s.supabase.from("activities").insert({
+    workspace_id: s.workspace.id,
+    owner_id: s.userId,
     contact_id: data.id,
     kind: "Origen",
     title: "Contacto creado",
     body: str(formData.get("source")) ? `Fuente: ${str(formData.get("source"))}` : "",
-    author,
+    author: s.profile?.full_name || s.email,
   });
   revalidateAll();
   return { id: data.id };
 }
 
-export async function updateContact(id: string, formData: FormData) {
-  const { supabase } = await ctx();
-  const { error } = await supabase
+export async function updateContact(id: string, formData: FormData): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase
     .from("contacts")
     .update({
       name: str(formData.get("name")),
@@ -132,7 +258,9 @@ export async function updateContact(id: string, formData: FormData) {
       source: str(formData.get("source")),
       timezone: str(formData.get("timezone")),
       company_id: str(formData.get("company_id")) || null,
+      assigned_to: str(formData.get("assigned_to")) || null,
       tags: parseTags(formData.get("tags")),
+      custom: parseCustom(formData),
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -140,26 +268,21 @@ export async function updateContact(id: string, formData: FormData) {
   return {};
 }
 
-export async function deleteContact(id: string) {
-  const { supabase } = await ctx();
-  const { error } = await supabase.from("contacts").delete().eq("id", id);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return {};
-}
-
-export async function duplicateContact(id: string) {
-  const { supabase, user } = await ctx();
-  const { data: src, error } = await supabase
+export async function duplicateContact(id: string): Promise<Result> {
+  const s = await guard();
+  const { data: src, error } = await s.supabase
     .from("contacts")
     .select("*")
     .eq("id", id)
     .single();
   if (error) return { error: error.message };
-  const { id: _id, created_at, updated_at, ...rest } = src as Record<string, unknown>;
-  const { data, error: insErr } = await supabase
+  const copy = { ...(src as Record<string, unknown>) };
+  delete copy.id;
+  delete copy.created_at;
+  delete copy.updated_at;
+  const { data, error: insErr } = await s.supabase
     .from("contacts")
-    .insert({ ...rest, owner_id: user.id, name: `${src.name} (copia)` })
+    .insert({ ...copy, owner_id: s.userId, name: `${src.name} (copia)` })
     .select("id")
     .single();
   if (insErr) return { error: insErr.message };
@@ -167,56 +290,106 @@ export async function duplicateContact(id: string) {
   return { id: data.id };
 }
 
-/* ------------------------------------------------------- contactos: en lote */
+/** Fusiona duplicados: mueve deals, actividades y adjuntos al superviviente. */
+export async function mergeContacts(keepId: string, mergeIds: string[]): Promise<Result> {
+  const s = await guard();
+  const ids = mergeIds.filter((i) => i !== keepId);
+  if (ids.length === 0) return { error: "Nada que fusionar." };
 
-export async function bulkDeleteContacts(ids: string[]) {
-  const { supabase } = await ctx();
-  if (ids.length === 0) return {};
-  const { error } = await supabase.from("contacts").delete().in("id", ids);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return { count: ids.length };
-}
-
-export async function bulkSetContactStatus(ids: string[], status: ContactStatus) {
-  const { supabase } = await ctx();
-  if (ids.length === 0) return {};
-  const { error } = await supabase.from("contacts").update({ status }).in("id", ids);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return { count: ids.length };
-}
-
-export async function bulkSetContactCompany(ids: string[], companyId: string | null) {
-  const { supabase } = await ctx();
-  if (ids.length === 0) return {};
-  const { error } = await supabase
+  const { data: rows, error } = await s.supabase
     .from("contacts")
-    .update({ company_id: companyId })
+    .select("*")
+    .in("id", [keepId, ...ids]);
+  if (error) return { error: error.message };
+
+  const keep = rows!.find((r) => r.id === keepId);
+  const others = rows!.filter((r) => r.id !== keepId);
+  if (!keep) return { error: "El contacto principal no existe." };
+
+  // Rellena huecos del superviviente con datos de los duplicados.
+  const patch: Record<string, unknown> = {};
+  for (const field of ["email", "phone", "role", "source", "timezone", "company_id"]) {
+    if (!keep[field]) {
+      const found = others.find((o) => o[field]);
+      if (found) patch[field] = found[field];
+    }
+  }
+  const tags = new Set<string>(keep.tags ?? []);
+  others.forEach((o) => (o.tags ?? []).forEach((t: string) => tags.add(t)));
+  patch.tags = Array.from(tags).slice(0, 12);
+  patch.custom = others.reduce((acc, o) => ({ ...o.custom, ...acc }), keep.custom ?? {});
+
+  await s.supabase.from("deals").update({ contact_id: keepId }).in("contact_id", ids);
+  await s.supabase.from("activities").update({ contact_id: keepId }).in("contact_id", ids);
+  await s.supabase.from("attachments").update({ contact_id: keepId }).in("contact_id", ids);
+  await s.supabase.from("contacts").update(patch).eq("id", keepId);
+
+  const { error: delErr } = await s.supabase
+    .from("contacts")
+    .update({ deleted_at: new Date().toISOString() })
     .in("id", ids);
+  if (delErr) return { error: delErr.message };
+
+  await s.supabase.from("activities").insert({
+    workspace_id: s.workspace.id,
+    owner_id: s.userId,
+    contact_id: keepId,
+    kind: "Nota",
+    title: `Fusionados ${ids.length} duplicados`,
+    body: others.map((o) => o.name).join(", "),
+    author: s.profile?.full_name || s.email,
+  });
+
+  revalidateAll();
+  return { count: ids.length };
+}
+
+/* ------------------------------------------------------- lote contactos */
+
+export async function bulkSetContactStatus(ids: string[], status: ContactStatus): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  const { error } = await s.supabase.from("contacts").update({ status }).in("id", ids);
   if (error) return { error: error.message };
   revalidateAll();
   return { count: ids.length };
 }
 
-export async function bulkTagContacts(ids: string[], tag: string, remove = false) {
-  const { supabase } = await ctx();
+export async function bulkSetContactCompany(ids: string[], companyId: string | null): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  const { error } = await s.supabase.from("contacts").update({ company_id: companyId }).in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function bulkAssignContacts(ids: string[], userId: string | null): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  const { error } = await s.supabase.from("contacts").update({ assigned_to: userId }).in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function bulkTagContacts(ids: string[], tag: string, remove = false): Promise<Result> {
+  const s = await guard();
   const clean = tag.trim();
-  if (ids.length === 0 || !clean) return {};
-  const { data, error } = await supabase.from("contacts").select("id, tags").in("id", ids);
+  if (!ids.length || !clean) return {};
+  const { data, error } = await s.supabase.from("contacts").select("id, tags").in("id", ids);
   if (error) return { error: error.message };
   for (const row of data ?? []) {
     const current: string[] = row.tags ?? [];
     const next = remove
       ? current.filter((t) => t !== clean)
       : Array.from(new Set([...current, clean])).slice(0, 12);
-    await supabase.from("contacts").update({ tags: next }).eq("id", row.id);
+    await s.supabase.from("contacts").update({ tags: next }).eq("id", row.id);
   }
   revalidateAll();
   return { count: ids.length };
 }
 
-/** Importación CSV. Crea las empresas que falten por nombre. */
 export async function importContacts(
   rows: {
     name: string;
@@ -227,12 +400,15 @@ export async function importContacts(
     status?: string;
     tags?: string;
   }[]
-) {
-  const { supabase, user } = await ctx();
+): Promise<Result> {
+  const s = await guard();
   const valid = rows.filter((r) => r.name?.trim());
-  if (valid.length === 0) return { error: "No hay filas con nombre." };
+  if (!valid.length) return { error: "No hay filas con nombre." };
 
-  const { data: existing } = await supabase.from("companies").select("id, name");
+  const { data: existing } = await s.supabase
+    .from("companies")
+    .select("id, name")
+    .is("deleted_at", null);
   const byName = new Map((existing ?? []).map((c) => [c.name.toLowerCase(), c.id]));
 
   const missing = Array.from(
@@ -240,22 +416,25 @@ export async function importContacts(
       valid
         .map((r) => r.company?.trim())
         .filter((n): n is string => !!n && !byName.has(n.toLowerCase()))
-        .map((n) => n)
     )
   );
   if (missing.length) {
-    const { data: created, error } = await supabase
+    const { data: created, error } = await s.supabase
       .from("companies")
-      .insert(missing.map((name) => ({ owner_id: user.id, name })))
+      .insert(
+        missing.map((name) => ({ workspace_id: s.workspace.id, owner_id: s.userId, name }))
+      )
       .select("id, name");
     if (error) return { error: error.message };
     (created ?? []).forEach((c) => byName.set(c.name.toLowerCase(), c.id));
   }
 
   const statuses = ["lead", "prospect", "customer"];
-  const { error } = await supabase.from("contacts").insert(
+  const { error } = await s.supabase.from("contacts").insert(
     valid.map((r) => ({
-      owner_id: user.id,
+      workspace_id: s.workspace.id,
+      owner_id: s.userId,
+      assigned_to: s.userId,
       name: r.name.trim(),
       email: r.email?.trim() ?? "",
       phone: r.phone?.trim() ?? "",
@@ -274,15 +453,18 @@ export async function importContacts(
   return { count: valid.length };
 }
 
-/* --------------------------------------------------------------------- deals */
+/* ================================================================ deals */
 
-export async function createDeal(formData: FormData) {
-  const { supabase, user, author } = await ctx();
+export async function createDeal(formData: FormData): Promise<Result> {
+  const s = await guard();
   const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as never));
-  const { data, error } = await supabase
+  const author = s.profile?.full_name || s.email;
+  const { data, error } = await s.supabase
     .from("deals")
     .insert({
-      owner_id: user.id,
+      workspace_id: s.workspace.id,
+      owner_id: s.userId,
+      assigned_to: str(formData.get("assigned_to")) || s.userId,
       name: str(formData.get("name")),
       value: num(formData.get("value")),
       stage: stageIndex,
@@ -292,6 +474,7 @@ export async function createDeal(formData: FormData) {
       company_id: str(formData.get("company_id")) || null,
       contact_id: str(formData.get("contact_id")) || null,
       tags: parseTags(formData.get("tags")),
+      custom: parseCustom(formData),
       lost_reason: stageIndex === 6 ? str(formData.get("lost_reason")) : "",
       owner_initials: initials(author),
     })
@@ -299,8 +482,9 @@ export async function createDeal(formData: FormData) {
     .single();
   if (error) return { error: error.message };
 
-  await supabase.from("activities").insert({
-    owner_id: user.id,
+  await s.supabase.from("activities").insert({
+    workspace_id: s.workspace.id,
+    owner_id: s.userId,
     deal_id: data.id,
     contact_id: str(formData.get("contact_id")) || null,
     kind: "Pipeline",
@@ -312,10 +496,10 @@ export async function createDeal(formData: FormData) {
   return { id: data.id };
 }
 
-export async function updateDeal(id: string, formData: FormData) {
-  const { supabase } = await ctx();
+export async function updateDeal(id: string, formData: FormData): Promise<Result> {
+  const s = await guard();
   const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as never));
-  const { error } = await supabase
+  const { error } = await s.supabase
     .from("deals")
     .update({
       name: str(formData.get("name")),
@@ -326,7 +510,9 @@ export async function updateDeal(id: string, formData: FormData) {
       notes: str(formData.get("notes")),
       company_id: str(formData.get("company_id")) || null,
       contact_id: str(formData.get("contact_id")) || null,
+      assigned_to: str(formData.get("assigned_to")) || null,
       tags: parseTags(formData.get("tags")),
+      custom: parseCustom(formData),
       lost_reason: stageIndex === 6 ? str(formData.get("lost_reason")) : "",
     })
     .eq("id", id);
@@ -335,10 +521,9 @@ export async function updateDeal(id: string, formData: FormData) {
   return {};
 }
 
-/** Movimiento de tarjeta en el kanban. Registra la actividad automáticamente. */
-export async function moveDealStage(id: string, stage: number, lostReason?: string) {
-  const { supabase, user, author } = await ctx();
-  const { data: before } = await supabase
+export async function moveDealStage(id: string, stage: number, lostReason?: string): Promise<Result> {
+  const s = await guard();
+  const { data: before } = await s.supabase
     .from("deals")
     .select("name, stage, contact_id")
     .eq("id", id)
@@ -348,11 +533,12 @@ export async function moveDealStage(id: string, stage: number, lostReason?: stri
   const patch: Record<string, unknown> = { stage };
   if (stage === 6) patch.lost_reason = lostReason ?? "";
 
-  const { error } = await supabase.from("deals").update(patch).eq("id", id);
+  const { error } = await s.supabase.from("deals").update(patch).eq("id", id);
   if (error) return { error: error.message };
 
-  await supabase.from("activities").insert({
-    owner_id: user.id,
+  await s.supabase.from("activities").insert({
+    workspace_id: s.workspace.id,
+    owner_id: s.userId,
     deal_id: id,
     contact_id: before.contact_id,
     kind: "Pipeline",
@@ -361,37 +547,33 @@ export async function moveDealStage(id: string, stage: number, lostReason?: stri
       stage === 6 && lostReason
         ? `Etapa actualizada desde ${STAGES[before.stage]}. Motivo: ${lostReason}.`
         : `Etapa actualizada desde ${STAGES[before.stage]}. Probabilidad al ${STAGE_PROBABILITY[stage]}%.`,
-    author,
+    author: s.profile?.full_name || s.email,
   });
   revalidateAll();
   return {};
 }
 
-export async function deleteDeal(id: string) {
-  const { supabase } = await ctx();
-  const { error } = await supabase.from("deals").delete().eq("id", id);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return {};
-}
-
-export async function bulkDeleteDeals(ids: string[]) {
-  const { supabase } = await ctx();
-  if (ids.length === 0) return {};
-  const { error } = await supabase.from("deals").delete().in("id", ids);
+export async function bulkAssignDeals(ids: string[], userId: string | null): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  const { error } = await s.supabase.from("deals").update({ assigned_to: userId }).in("id", ids);
   if (error) return { error: error.message };
   revalidateAll();
   return { count: ids.length };
 }
 
-export async function duplicateDeal(id: string) {
-  const { supabase, user } = await ctx();
-  const { data: src, error } = await supabase.from("deals").select("*").eq("id", id).single();
+export async function duplicateDeal(id: string): Promise<Result> {
+  const s = await guard();
+  const { data: src, error } = await s.supabase.from("deals").select("*").eq("id", id).single();
   if (error) return { error: error.message };
-  const { id: _id, created_at, updated_at, closed_at, ...rest } = src as Record<string, unknown>;
-  const { data, error: insErr } = await supabase
+  const copy = { ...(src as Record<string, unknown>) };
+  delete copy.id;
+  delete copy.created_at;
+  delete copy.updated_at;
+  delete copy.closed_at;
+  const { data, error: insErr } = await s.supabase
     .from("deals")
-    .insert({ ...rest, owner_id: user.id, name: `${src.name} (copia)`, stage: 0 })
+    .insert({ ...copy, owner_id: s.userId, name: `${src.name} (copia)`, stage: 0 })
     .select("id")
     .single();
   if (insErr) return { error: insErr.message };
@@ -399,22 +581,23 @@ export async function duplicateDeal(id: string) {
   return { id: data.id };
 }
 
-/* ---------------------------------------------------------------- actividades */
+/* ========================================================== actividades */
 
-export async function addActivity(formData: FormData) {
-  const { supabase, user, author } = await ctx();
+export async function addActivity(formData: FormData): Promise<Result> {
+  const s = await guard();
   const body = str(formData.get("body"));
   const title = str(formData.get("title")) || body.slice(0, 60) || "Nota";
   const occurred = str(formData.get("occurred_at"));
   const due = str(formData.get("due_date"));
-  const { error } = await supabase.from("activities").insert({
-    owner_id: user.id,
+  const { error } = await s.supabase.from("activities").insert({
+    workspace_id: s.workspace.id,
+    owner_id: s.userId,
     contact_id: str(formData.get("contact_id")) || null,
     deal_id: str(formData.get("deal_id")) || null,
     kind: str(formData.get("kind")) || "Nota",
     title,
     body,
-    author,
+    author: s.profile?.full_name || s.email,
     due_date: due ? new Date(due).toISOString() : null,
     occurred_at: occurred ? new Date(occurred).toISOString() : new Date().toISOString(),
   });
@@ -423,17 +606,17 @@ export async function addActivity(formData: FormData) {
   return {};
 }
 
-export async function toggleActivityCompleted(id: string, completed: boolean) {
-  const { supabase } = await ctx();
-  const { error } = await supabase.from("activities").update({ completed }).eq("id", id);
+export async function toggleActivityCompleted(id: string, completed: boolean): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase.from("activities").update({ completed }).eq("id", id);
   if (error) return { error: error.message };
   revalidateAll();
   return {};
 }
 
-export async function snoozeActivity(id: string, days: number) {
-  const { supabase } = await ctx();
-  const { data: row, error } = await supabase
+export async function snoozeActivity(id: string, days: number): Promise<Result> {
+  const s = await guard();
+  const { data: row, error } = await s.supabase
     .from("activities")
     .select("due_date")
     .eq("id", id)
@@ -441,7 +624,7 @@ export async function snoozeActivity(id: string, days: number) {
   if (error) return { error: error.message };
   const base = row.due_date ? new Date(row.due_date) : new Date();
   base.setDate(base.getDate() + days);
-  const { error: upErr } = await supabase
+  const { error: upErr } = await s.supabase
     .from("activities")
     .update({ due_date: base.toISOString() })
     .eq("id", id);
@@ -450,38 +633,188 @@ export async function snoozeActivity(id: string, days: number) {
   return {};
 }
 
-export async function deleteActivity(id: string) {
-  const { supabase } = await ctx();
-  const { error } = await supabase.from("activities").delete().eq("id", id);
-  if (error) return { error: error.message };
-  revalidateAll();
-  return {};
-}
+/* ====================================== papelera: borrar, restaurar, purgar */
 
-export async function bulkDeleteActivities(ids: string[]) {
-  const { supabase } = await ctx();
-  if (ids.length === 0) return {};
-  const { error } = await supabase.from("activities").delete().in("id", ids);
+const TRASHABLE = ["contacts", "companies", "deals", "activities"] as const;
+export type Trashable = (typeof TRASHABLE)[number];
+
+export async function softDelete(entity: Trashable, ids: string[]): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  if (!TRASHABLE.includes(entity)) return { error: "Entidad no válida." };
+  const { error } = await s.supabase
+    .from(entity)
+    .update({ deleted_at: new Date().toISOString() })
+    .in("id", ids);
   if (error) return { error: error.message };
   revalidateAll();
   return { count: ids.length };
 }
 
-/* -------------------------------------------------------------------- perfil */
+export async function restore(entity: Trashable, ids: string[]): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  if (!TRASHABLE.includes(entity)) return { error: "Entidad no válida." };
+  const { error } = await s.supabase.from(entity).update({ deleted_at: null }).in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
 
-export async function updateProfile(formData: FormData) {
-  const { supabase, user } = await ctx();
+export async function purge(entity: Trashable, ids: string[]): Promise<Result> {
+  const s = await guard();
+  if (!ids.length) return {};
+  if (!TRASHABLE.includes(entity)) return { error: "Entidad no válida." };
+  const { error } = await s.supabase
+    .from(entity)
+    .delete()
+    .in("id", ids)
+    .not("deleted_at", "is", null);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function emptyTrash(): Promise<Result> {
+  const s = await guard();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede vaciar la papelera." };
+  for (const entity of TRASHABLE) {
+    const { error } = await s.supabase
+      .from(entity)
+      .delete()
+      .eq("workspace_id", s.workspace.id)
+      .not("deleted_at", "is", null);
+    if (error) return { error: error.message };
+  }
+  revalidateAll();
+  return {};
+}
+
+/* ======================================================== vistas guardadas */
+
+export async function saveView(
+  entity: string,
+  name: string,
+  config: Record<string, string>,
+  shared: boolean
+): Promise<Result> {
+  const s = await guard();
+  if (!name.trim()) return { error: "Ponle un nombre a la vista." };
+  const { data, error } = await s.supabase
+    .from("saved_views")
+    .insert({
+      workspace_id: s.workspace.id,
+      user_id: s.userId,
+      entity,
+      name: name.trim(),
+      config,
+      shared,
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { id: data.id };
+}
+
+export async function deleteView(id: string): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase.from("saved_views").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/* ==================================================== campos personalizados */
+
+export async function createCustomField(formData: FormData): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede crear campos." };
+  const label = str(formData.get("label"));
+  if (!label) return { error: "El campo necesita un nombre." };
+  const key =
+    label
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "") || "campo";
+
+  const { error } = await s.supabase.from("custom_fields").insert({
+    workspace_id: s.workspace.id,
+    entity: str(formData.get("entity")) === "deals" ? "deals" : "contacts",
+    key,
+    label,
+    type: str(formData.get("type")) || "text",
+    options: str(formData.get("options"))
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean),
+  });
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function deleteCustomField(id: string): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede borrar campos." };
+  const { error } = await s.supabase.from("custom_fields").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/* ================================================================ adjuntos */
+
+export async function registerAttachment(
+  path: string,
+  name: string,
+  size: number,
+  mime: string,
+  contactId?: string,
+  dealId?: string
+): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase.from("attachments").insert({
+    workspace_id: s.workspace.id,
+    contact_id: contactId ?? null,
+    deal_id: dealId ?? null,
+    name,
+    path,
+    size,
+    mime,
+    uploaded_by: s.userId,
+  });
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function deleteAttachment(id: string, path: string): Promise<Result> {
+  const s = await guard();
+  await s.supabase.storage.from("attachments").remove([path]);
+  const { error } = await s.supabase.from("attachments").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/* ================================================================== perfil */
+
+export async function updateProfile(formData: FormData): Promise<Result> {
+  const s = await getSession();
   const prefs = {
     digest: formData.get("digest") === "on",
     mentions: formData.get("mentions") === "on",
     autoLog: formData.get("autoLog") === "on",
     weighted: formData.get("weighted") === "on",
   };
-  const { error } = await supabase.from("profiles").upsert({
-    id: user.id,
+  const { error } = await s.supabase.from("profiles").upsert({
+    id: s.userId,
     full_name: str(formData.get("full_name")),
     role: str(formData.get("role")),
-    email: str(formData.get("email")) || user.email!,
+    email: str(formData.get("email")) || s.email,
     phone: str(formData.get("phone")),
     prefs,
   });
@@ -490,13 +823,43 @@ export async function updateProfile(formData: FormData) {
   return {};
 }
 
-/** Borra todos los datos del workspace (no la cuenta). */
-export async function wipeWorkspace() {
-  const { supabase, user } = await ctx();
+export async function wipeWorkspace(): Promise<Result> {
+  const s = await getSession();
+  if (!s.isAdmin) return { error: "Sólo un administrador puede vaciar el workspace." };
   for (const table of ["activities", "deals", "contacts", "companies"]) {
-    const { error } = await supabase.from(table).delete().eq("owner_id", user.id);
+    const { error } = await s.supabase
+      .from(table)
+      .delete()
+      .eq("workspace_id", s.workspace.id);
     if (error) return { error: error.message };
   }
   revalidateAll();
   return {};
+}
+
+/* ------------------------------------------------------------------------
+ * Atajos con nombre por entidad. Todos pasan por la papelera: nada se borra
+ * de verdad hasta que se purga desde /trash.
+ * --------------------------------------------------------------------- */
+
+export async function deleteContact(id: string) {
+  return softDelete("contacts", [id]);
+}
+export async function bulkDeleteContacts(ids: string[]) {
+  return softDelete("contacts", ids);
+}
+export async function deleteCompany(id: string) {
+  return softDelete("companies", [id]);
+}
+export async function deleteDeal(id: string) {
+  return softDelete("deals", [id]);
+}
+export async function bulkDeleteDeals(ids: string[]) {
+  return softDelete("deals", ids);
+}
+export async function deleteActivity(id: string) {
+  return softDelete("activities", [id]);
+}
+export async function bulkDeleteActivities(ids: string[]) {
+  return softDelete("activities", ids);
 }

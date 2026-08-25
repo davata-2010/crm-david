@@ -77,12 +77,19 @@ export default function CommandPalette() {
         .from("contacts")
         .select("id, name, email, company:companies(name)")
         .or(`name.ilike.${like},email.ilike.${like}`)
+        .is("deleted_at", null)
         .limit(6),
-      supabase.from("companies").select("id, name, industry").ilike("name", like).limit(4),
+      supabase
+        .from("companies")
+        .select("id, name, industry")
+        .ilike("name", like)
+        .is("deleted_at", null)
+        .limit(4),
       supabase
         .from("deals")
         .select("id, name, value, stage, company:companies(name)")
         .ilike("name", like)
+        .is("deleted_at", null)
         .limit(6),
     ]);
 

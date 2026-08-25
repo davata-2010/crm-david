@@ -18,9 +18,10 @@ export default async function TasksPage({
       .from("activities")
       .select("*, contact:contacts(id,name), deal:deals(id,name)")
       .not("due_date", "is", null)
+      .is("deleted_at", null)
       .order("due_date", { ascending: true }),
-    supabase.from("contacts").select("id, name").order("name"),
-    supabase.from("deals").select("id, name").lt("stage", 5).order("name"),
+    supabase.from("contacts").select("id, name").is("deleted_at", null).order("name"),
+    supabase.from("deals").select("id, name").lt("stage", 5).is("deleted_at", null).order("name"),
   ]);
 
   const groups = splitTasks((activities ?? []) as Activity[]);
@@ -32,7 +33,7 @@ export default async function TasksPage({
         title="Tareas"
         subtitle={`${groups.pendingCount} pendientes · ${groups.overdue.length} vencidas`}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <TaskList
           groups={groups}
           contacts={contacts ?? []}

@@ -10,9 +10,9 @@ export default async function CompaniesPage() {
   const supabase = createClient();
   const [{ data: companiesData }, { data: contactsData }, { data: dealsData }] =
     await Promise.all([
-      supabase.from("companies").select("*").order("name"),
-      supabase.from("contacts").select("id, name, company_id"),
-      supabase.from("deals").select("id, company_id, value, stage"),
+      supabase.from("companies").select("*").is("deleted_at", null).order("name"),
+      supabase.from("contacts").select("id, name, company_id").is("deleted_at", null),
+      supabase.from("deals").select("id, company_id, value, stage").is("deleted_at", null),
     ]);
 
   const companies = (companiesData ?? []) as Company[];
@@ -40,7 +40,7 @@ export default async function CompaniesPage() {
         subtitle={`${companies.length} cuentas · clic derecho para acciones`}
         action={<NewButton href="/companies/new" label="+ Empresa" />}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <CompaniesList rows={rows} />
       </div>
     </>

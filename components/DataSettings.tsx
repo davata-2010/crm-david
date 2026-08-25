@@ -10,7 +10,13 @@ import { STAGES } from "@/lib/constants";
 
 const named = (v: unknown) => (v as { name?: string } | null)?.name ?? "";
 
-export default function DataSettings({ counts }: { counts: Record<string, number> }) {
+export default function DataSettings({
+  counts,
+  isAdmin,
+}: {
+  counts: Record<string, number>;
+  isAdmin: boolean;
+}) {
   const router = useRouter();
   const { confirm, toast } = useChrome();
   const [pending, start] = useTransition();
@@ -18,10 +24,10 @@ export default function DataSettings({ counts }: { counts: Record<string, number
   async function exportAll() {
     const supabase = createClient();
     const [c, co, d, a] = await Promise.all([
-      supabase.from("contacts").select("*, company:companies(name)"),
-      supabase.from("companies").select("*"),
-      supabase.from("deals").select("*, company:companies(name), contact:contacts(name)"),
-      supabase.from("activities").select("*"),
+      supabase.from("contacts").select("*, company:companies(name)").is("deleted_at", null),
+      supabase.from("companies").select("*").is("deleted_at", null),
+      supabase.from("deals").select("*, company:companies(name), contact:contacts(name)").is("deleted_at", null),
+      supabase.from("activities").select("*").is("deleted_at", null),
     ]);
 
     const stamp = new Date().toISOString().slice(0, 10);
@@ -113,7 +119,7 @@ export default function DataSettings({ counts }: { counts: Record<string, number
         <div className="mt-1 text-[12.5px] text-ink-350">
           Descarga todo tu workspace en CSV: un fichero por tabla, listo para Excel o Sheets.
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-3">
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Object.entries(counts).map(([label, n]) => (
             <div key={label} className="rounded-[10px] border border-hair bg-ink-800 px-4 py-3">
               <div className="text-[10.5px] uppercase tracking-[0.09em] text-ink-350">
@@ -131,14 +137,15 @@ export default function DataSettings({ counts }: { counts: Record<string, number
         </button>
       </div>
 
+      {isAdmin && (
       <div className="rounded-xl2 border border-[rgba(255,143,122,0.28)] bg-[rgba(255,143,122,0.04)] p-[26px]">
         <div className="text-[15px] font-semibold tracking-[-0.01em] text-[#FF8F7A]">
           Zona peligrosa
         </div>
         <div className="mt-1 text-[12.5px] leading-[1.6] text-ink-250">
-          Vaciar el workspace borra todos tus contactos, empresas, deals y actividades. Tu
-          cuenta y tu perfil se conservan. No se puede deshacer: exporta antes si quieres una
-          copia.
+          Vaciar el workspace borra todos los contactos, empresas, deals y actividades, incluida
+          la papelera. Las cuentas y los perfiles del equipo se conservan. No se puede deshacer:
+          exporta antes si quieres una copia.
         </div>
         <button
           disabled={pending}
@@ -173,6 +180,7 @@ export default function DataSettings({ counts }: { counts: Record<string, number
           {pending ? "Borrando…" : "Vaciar workspace"}
         </button>
       </div>
+      )}
     </div>
   );
 }

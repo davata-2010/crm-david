@@ -13,12 +13,13 @@ export default async function NewContactPage({
   const { data: companies } = await supabase
     .from("companies")
     .select("id, name")
+    .is("deleted_at", null)
     .order("name");
 
   return (
     <>
       <PageHeader crumb="Contactos" title="Nuevo contacto" />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <div className="panel max-w-[720px] p-7">
           <div className="text-[15px] font-semibold tracking-[-0.01em]">
             Datos del contacto

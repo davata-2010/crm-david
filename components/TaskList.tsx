@@ -200,7 +200,7 @@ export default function TaskList({
           }}
           className="panel mt-4 p-5"
         >
-          <div className="grid grid-cols-[1.6fr_0.9fr_1fr_1fr] gap-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_0.9fr_1fr_1fr]">
             <input name="title" className="field" placeholder="Llamar a Elena para cerrar" required />
             <select name="kind" className="field" defaultValue="Tarea">
               {ACTIVITY_KINDS.map((k) => (
@@ -226,7 +226,7 @@ export default function TaskList({
               ))}
             </select>
           </div>
-          <div className="mt-3 grid grid-cols-[1fr_2fr_auto] gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_2fr_auto]">
             <input
               name="due_date"
               type="datetime-local"

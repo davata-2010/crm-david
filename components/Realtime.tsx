@@ -9,7 +9,7 @@ import { createClient } from "@/lib/supabase/client";
  * Cualquier INSERT/UPDATE/DELETE refresca los Server Components,
  * así el dashboard, la tabla y el kanban se mantienen en vivo.
  */
-export default function Realtime({ userId }: { userId: string }) {
+export default function Realtime({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
 
   useEffect(() => {
@@ -21,11 +21,11 @@ export default function Realtime({ userId }: { userId: string }) {
       timer = setTimeout(() => router.refresh(), 150);
     };
 
-    const channel = supabase.channel(`crm:${userId}`);
+    const channel = supabase.channel(`crm:${workspaceId}`);
     for (const table of ["contacts", "companies", "deals", "activities"]) {
       channel.on(
         "postgres_changes",
-        { event: "*", schema: "public", table, filter: `owner_id=eq.${userId}` },
+        { event: "*", schema: "public", table, filter: `workspace_id=eq.${workspaceId}` },
         refresh
       );
     }
@@ -35,7 +35,7 @@ export default function Realtime({ userId }: { userId: string }) {
       if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
     };
-  }, [router, userId]);
+  }, [router, workspaceId]);
 
   return null;
 }

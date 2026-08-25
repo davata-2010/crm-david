@@ -32,53 +32,87 @@ Regístrate en `/login` con email y contraseña. En el dashboard vacío puedes p
 
 ## Qué hay implementado
 
+### Multiusuario
+
+El CRM dejó de ser una isla por usuario. Hay **workspaces** con miembros y cuatro roles: propietario, administrador, miembro y sólo lectura. Las políticas RLS pasaron de `owner_id = auth.uid()` a "eres miembro de este workspace", así que el equipo comparte contactos, empresas, deals y actividades. Contactos y deals tienen responsable asignado, y el selector del workspace está en la cabecera de la barra lateral.
+
+Las invitaciones se crean desde Ajustes → Equipo y generan un enlace `/invite/<token>`. El CRM todavía no envía emails: copia el enlace y mándalo tú. Si la persona se registra con ese email, el alta la mete directamente en el workspace.
+
+### Papelera
+
+Nada se borra de golpe. Todo pasa por `deleted_at` y aterriza en `/trash`, donde se puede restaurar o borrar definitivamente. Vaciar la papelera es cosa de administradores.
+
+### Rendimiento
+
+La tabla de contactos ya no se trae la base de datos entera. Filtros, búsqueda, orden y paginación se resuelven en Postgres contra la vista `contact_rows`, que agrega valor abierto, número de deals, última actividad y tareas pendientes por contacto. El estado vive en la URL, así que las vistas se pueden compartir y guardar.
+
+### Móvil
+
+Barra lateral deslizante, rejillas que colapsan y tablas con scroll horizontal. La aplicación es usable desde el teléfono.
+
+### Pantallas
+
 | Pantalla | Ruta | Qué hace |
 |---|---|---|
-| Dashboard | `/` | KPIs enlazados, pipeline por etapa, "tu foco" con tareas vencidas y de hoy, deals que necesitan atención |
-| Contactos | `/contacts` | Tabla con selección múltiple, acciones en lote, filtros por estado/empresa/etiqueta, orden, paginación, import/export CSV |
-| Detalle contacto | `/contacts/[id]` | Ficha, etiquetas, stats, tareas pendientes, timeline filtrable, deals abiertos, edición y borrado |
-| Empresas | `/companies` | Fichas de cuenta con valor abierto y ganado, contactos vinculados |
-| Detalle empresa | `/companies/[id]` | Datos, deals de la cuenta, contactos y timeline agregado |
-| Pipeline | `/pipeline` | Kanban de 7 etapas con drag & drop, filtros, vista ponderada, columna de perdidos con motivo |
-| Deal | `/deals/new`, `/deals/[id]` | Formulario con resumen en vivo, etiquetas, motivo de pérdida, cambio de etapa |
-| Tareas | `/tasks` | Vencidas, hoy, esta semana, más adelante y completadas; alta rápida, completar y posponer |
-| Actividad | `/activity` | Feed global agrupado por día, filtros por tipo y periodo, exportación |
-| Informes | `/reports` | Embudo de conversión, ingresos por mes, ranking de empresas, motivos de pérdida, tipos de proyecto, volumen de actividad |
-| Ajustes | `/settings` | Perfil y preferencias, etapas, equipo, integraciones y pestaña de datos (exportar todo / vaciar workspace) |
+| Dashboard | `/` | KPIs enlazados, pipeline por etapa, foco del día con tareas vencidas, deals que necesitan atención |
+| Contactos | `/contacts` | Filtrado y paginación en servidor, selección múltiple, acciones en lote, vistas guardadas, duplicados, import/export CSV |
+| Detalle contacto | `/contacts/[id]` | Ficha, etiquetas, campos personalizados, responsable, tareas, timeline, adjuntos y asistente |
+| Empresas | `/companies`, `/companies/[id]` | Cuentas con valor abierto y ganado, contactos, deals y timeline agregado |
+| Pipeline | `/pipeline` | Kanban de 7 etapas con drag & drop, vista ponderada, filtros, columna de perdidos con motivo |
+| Deal | `/deals/new`, `/deals/[id]` | Formulario con resumen en vivo, campos personalizados, adjuntos y asistente |
+| Tareas | `/tasks` | Vencidas, hoy, semana, más adelante y completadas; completar y posponer |
+| Actividad | `/activity` | Feed global agrupado por día con filtros y exportación |
+| Informes | `/reports` | Embudo, ingresos por mes, ranking de empresas, motivos de pérdida, tipos, volumen de actividad |
+| Papelera | `/trash` | Restaurar o borrar definitivamente |
+| Ajustes | `/settings` | Perfil, equipo, pipeline, campos personalizados, API, historial de cambios y datos |
 
 ### Menú contextual propio
 
-El clic derecho está capturado en toda la aplicación: en lugar del menú de Chrome sale uno propio, con las acciones que tienen sentido según dónde pulses.
+El clic derecho está capturado en toda la aplicación y ofrece acciones según dónde pulses: filas de contacto (abrir, editar, duplicar, email, crear deal, asignar, cambiar estado, papelera), selección múltiple (estado, responsable, etiquetas, empresa, fusionar, exportar, papelera), tarjetas y columnas del kanban, tareas, empresas, actividades, papelera y la propia barra lateral.
 
-- **Fila de contacto:** abrir, abrir en pestaña nueva, editar, duplicar, enviar email, copiar email o teléfono, crear deal, añadir tarea, cambiar estado y **eliminar**.
-- **Varios contactos seleccionados:** cambiar estado en bloque, etiquetar, desasignar empresa, exportar la selección y **eliminar en lote**.
-- **Tarjeta del kanban:** abrir, editar, duplicar, ir al contacto, añadir tarea, copiar valor, mover a cualquier etapa y eliminar.
-- **Columna del kanban:** nuevo deal en esa etapa, exportar la columna, alternar ponderado y ocultar cerrados.
-- **Tarea:** completar, posponer 1 día / 3 días / 1 semana, ir al contacto o al deal, eliminar.
-- **Empresa, actividad y fondo de cada página** tienen su propio menú con exportación, selección y limpieza de filtros.
+### API de captación de leads
 
-Se cierra con `Esc`, con un clic fuera o al hacer scroll, y se reposiciona solo si no cabe en pantalla.
+```
+POST /api/leads
+X-Api-Key: aur_live_…
+{ "name": "...", "email": "...", "company": "...", "tags": "a,b", "message": "..." }
+```
+
+Crea el contacto, la empresa si no existe y la primera actividad. Si el email ya está en el workspace no duplica: añade una actividad al contacto existente. La clave se ve, se copia y se rota desde Ajustes → API.
+
+### Asistente
+
+Botones de resumen de cuenta, borrador de email de seguimiento y puntuación de lead en la ficha de contactos y deals. Cada llamada arma un briefing con los datos reales del registro y su historial.
+
+**Requiere configurar `ANTHROPIC_API_KEY`** en las variables de entorno de Netlify. Sin ella, los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
 
 ### Otras piezas
 
-- **Paleta de comandos** con `⌘K` / `Ctrl+K`: busca contactos, deals y empresas en Supabase y salta a cualquier sección.
-- **Diálogos de confirmación y avisos** propios, en lugar de los `confirm()` y `alert()` del navegador.
-- **Etiquetas de colores** en contactos y deals, con color estable derivado del texto.
-- **Import/export CSV** con cabeceras en español o inglés; la importación crea las empresas que falten.
-- **Selección con Mayús+clic** para marcar rangos completos en la tabla.
-- **Tiempo real:** `components/Realtime.tsx` se suscribe a `postgres_changes` de las cuatro tablas y refresca los Server Components.
+- **Historial de cambios** por triggers en Postgres: quién creó, editó, borró o restauró qué y qué campos cambiaron. Visible en Ajustes → Historial.
+- **Campos personalizados** por workspace, para contactos y deals, con tipos texto, número, fecha, desplegable y casilla.
+- **Adjuntos** en Supabase Storage con bucket privado y URLs firmadas de 60 segundos.
+- **Detección y fusión de duplicados** por email o nombre normalizado; la fusión mueve deals, actividades y adjuntos al superviviente.
+- **Vistas guardadas** de la tabla de contactos, compartidas con el equipo.
+- **Paleta de comandos** con `⌘K` / `Ctrl+K`.
+- **Diálogos y avisos propios** en lugar de los del navegador.
+- **Tiempo real** por `postgres_changes` filtrado por workspace.
 
 ## Estructura
 
 ```
 app/
   (app)/            layout con sidebar + rutas autenticadas
+  api/leads/        captación de leads con clave de API
+  api/ai/           asistente (requiere ANTHROPIC_API_KEY)
+  invite/[token]/   aceptación de invitaciones
   login/            alta y acceso con Supabase Auth
-  actions.ts        server actions: CRUD de contactos, empresas, deals y actividades
+  actions.ts        server actions: CRUD, lote, papelera, equipo, vistas, campos
   seed.ts           carga del set de datos de ejemplo
 components/         Sidebar, PageHeader, PipelineBoard, Timeline, formularios…
 lib/                cliente Supabase (browser/server), métricas, formato, tipos
-supabase/schema.sql esquema + RLS + realtime
+supabase/
+  schema.sql        esquema inicial
+  migrations/       002 pro · 003 workspaces · 004 storage · 005 vistas
 middleware.ts       refresco de sesión y guarda de rutas
 ```
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession, memberName } from "@/lib/workspace";
 import PageHeader from "@/components/PageHeader";
 import Timeline from "@/components/Timeline";
 import AddActivity from "@/components/AddActivity";
@@ -8,9 +8,11 @@ import ContactForm from "@/components/ContactForm";
 import ContactActions from "@/components/ContactActions";
 import EditToggle from "@/components/EditToggle";
 import Tag from "@/components/Tag";
+import AiPanel from "@/components/AiPanel";
+import Attachments from "@/components/Attachments";
 import { STATUS, STAGES, GOLD, type ContactStatus } from "@/lib/constants";
 import { eur, initials, shortDate } from "@/lib/format";
-import type { Activity, Contact, Deal } from "@/lib/types";
+import type { Activity, Attachment, Contact, CustomField, Deal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,8 @@ export default async function ContactDetailPage({
   params: { id: string };
   searchParams: { edit?: string; task?: string };
 }) {
-  const supabase = createClient();
+  const session = await getSession();
+  const { supabase, members, canWrite, workspace } = session;
 
   const [{ data: contactData }, { data: dealsData }, { data: activitiesData }, { data: companies }] =
     await Promise.all([
@@ -29,19 +32,35 @@ export default async function ContactDetailPage({
         .from("contacts")
         .select("*, company:companies(id,name,industry)")
         .eq("id", params.id)
+        .is("deleted_at", null)
         .maybeSingle(),
       supabase
         .from("deals")
         .select("*, company:companies(id,name)")
         .eq("contact_id", params.id)
+        .is("deleted_at", null)
         .order("value", { ascending: false }),
       supabase
         .from("activities")
         .select("*")
         .eq("contact_id", params.id)
+        .is("deleted_at", null)
         .order("occurred_at", { ascending: false }),
-      supabase.from("companies").select("id, name").order("name"),
+      supabase.from("companies").select("id, name").is("deleted_at", null).order("name"),
     ]);
+
+  const [{ data: attachments }, { data: customFields }] = await Promise.all([
+    supabase
+      .from("attachments")
+      .select("*")
+      .eq("contact_id", params.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("custom_fields")
+      .select("*")
+      .eq("entity", "contacts")
+      .order("position", { ascending: true }),
+  ]);
 
   const contact = contactData as Contact | null;
   if (!contact) notFound();
@@ -80,13 +99,18 @@ export default async function ContactDetailPage({
     { label: "Cargo", value: contact.role || "—" },
     { label: "Origen", value: contact.source || "—" },
     { label: "Zona horaria", value: contact.timezone || "—" },
+    { label: "Responsable", value: memberName(members, contact.assigned_to) },
+    ...((customFields ?? []) as CustomField[]).map((f) => ({
+      label: f.label,
+      value: String(contact.custom?.[f.key] ?? "—") || "—",
+    })),
   ];
 
   return (
     <>
       <PageHeader crumb="Contactos" title={contact.name} />
 
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <Link
           href="/contacts"
           className="mb-[18px] inline-block text-[12.5px] text-ink-350 transition-colors hover:text-gold"
@@ -94,18 +118,23 @@ export default async function ContactDetailPage({
           ← Todos los contactos
         </Link>
 
-        <div className="grid grid-cols-[1.7fr_1fr] items-start gap-4">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1.7fr_1fr]">
           <div className="flex flex-col gap-4">
             {editing ? (
               <div className="panel p-[26px]">
                 <div className="mb-5 text-[15px] font-semibold tracking-[-0.01em]">
                   Editar contacto
                 </div>
-                <ContactForm companies={companies ?? []} contact={contact} />
+                <ContactForm
+                  companies={companies ?? []}
+                  contact={contact}
+                  members={members}
+                  fields={(customFields ?? []) as CustomField[]}
+                />
               </div>
             ) : (
               <div className="panel px-[26px] pb-[22px] pt-[26px]">
-                <div className="flex items-center gap-[18px]">
+                <div className="flex flex-wrap items-center gap-[18px]">
                   <div className="grid h-[58px] w-[58px] flex-[0_0_58px] place-items-center rounded-full border border-[rgba(250,197,28,0.35)] bg-ink-800 text-[18px] font-semibold text-gold">
                     {initials(contact.name)}
                   </div>
@@ -163,7 +192,7 @@ export default async function ContactDetailPage({
                   </div>
                 </div>
 
-                <div className="mt-6 grid grid-cols-4 gap-px overflow-hidden rounded-[11px] bg-hair">
+                <div className="mt-6 grid grid-cols-2 gap-px lg:grid-cols-4 overflow-hidden rounded-[11px] bg-hair">
                   {stats.map((s) => (
                     <div key={s.label} className="bg-ink-880 px-4 py-[15px]">
                       <div className="text-[10.5px] uppercase tracking-[0.09em] text-ink-350">
@@ -271,7 +300,18 @@ export default async function ContactDetailPage({
               </div>
             </div>
 
-            <AddActivity contactId={contact.id} startAsTask={searchParams.task === "1"} />
+            <AiPanel contactId={contact.id} />
+
+            <Attachments
+              items={(attachments ?? []) as Attachment[]}
+              workspaceId={workspace.id}
+              contactId={contact.id}
+              canWrite={canWrite}
+            />
+
+            {canWrite && (
+              <AddActivity contactId={contact.id} startAsTask={searchParams.task === "1"} />
+            )}
           </div>
         </div>
       </div>

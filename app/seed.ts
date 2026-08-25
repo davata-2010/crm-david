@@ -1,8 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/workspace";
 
 const COMPANIES = [
   { name: "Northbeam", industry: "Logística", website: "northbeam.io" },
@@ -63,27 +62,22 @@ const dateAhead = (d: number) =>
 
 /** Rellena el workspace con el set de datos del handoff. Todo va a Supabase. */
 export async function seedDemoData() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const s = await getSession();
+  const supabase = s.supabase;
+  const user = { id: s.userId, email: s.email };
+  const ws = s.workspace.id;
 
   const { count } = await supabase
     .from("contacts")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
   if ((count ?? 0) > 0) return { error: "El workspace ya tiene contactos." };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-  const author = profile?.full_name || user.email!.split("@")[0];
+  const author = s.profile?.full_name || s.email.split("@")[0];
 
   const { data: companies, error: cErr } = await supabase
     .from("companies")
-    .insert(COMPANIES.map((c) => ({ ...c, owner_id: user.id })))
+    .insert(COMPANIES.map((c) => ({ ...c, owner_id: user.id, workspace_id: ws })))
     .select("id, name");
   if (cErr) return { error: cErr.message };
   const companyId = new Map(companies!.map((c) => [c.name, c.id]));
@@ -93,6 +87,8 @@ export async function seedDemoData() {
     .insert(
       CONTACTS.map((c, i) => ({
         owner_id: user.id,
+        workspace_id: ws,
+        assigned_to: user.id,
         company_id: companyId.get(c.company) ?? null,
         name: c.name,
         email: c.email,
@@ -114,6 +110,8 @@ export async function seedDemoData() {
     .insert(
       DEALS.map((d, i) => ({
         owner_id: user.id,
+        workspace_id: ws,
+        assigned_to: user.id,
         company_id: companyId.get(d.company) ?? null,
         contact_id: contactId.get(d.contact) ?? null,
         name: d.name,
@@ -136,6 +134,7 @@ export async function seedDemoData() {
   const activities = [
     ...TIMELINE.map((t) => ({
       owner_id: user.id,
+      workspace_id: ws,
       contact_id: contactId.get("Elena Vidal") ?? null,
       deal_id: mainDeal?.id ?? null,
       kind: t.kind,
@@ -146,6 +145,7 @@ export async function seedDemoData() {
     })),
     ...UPCOMING.map((u) => ({
       owner_id: user.id,
+      workspace_id: ws,
       contact_id: contactId.get(u.contact) ?? null,
       deal_id: deals!.find((d) => d.contact_id === contactId.get(u.contact))?.id ?? null,
       kind: u.kind,
@@ -159,6 +159,7 @@ export async function seedDemoData() {
     // Dos tareas ya vencidas, para que se vea el aviso rojo del dashboard.
     {
       owner_id: user.id,
+      workspace_id: ws,
       contact_id: contactId.get("Marc Oliveras") ?? null,
       deal_id: deals!.find((d) => d.name === "Voice agent para reservas")?.id ?? null,
       kind: "Llamada",
@@ -171,6 +172,7 @@ export async function seedDemoData() {
     },
     {
       owner_id: user.id,
+      workspace_id: ws,
       contact_id: contactId.get("Irene Castells") ?? null,
       deal_id: deals!.find((d) => d.name === "Automatización de onboarding")?.id ?? null,
       kind: "Tarea",
@@ -189,7 +191,7 @@ export async function seedDemoData() {
   await supabase.from("profiles").upsert({
     id: user.id,
     full_name: author,
-    email: user.email!,
+    email: s.email,
     role: "Head of Growth",
   });
 

@@ -16,10 +16,12 @@ export default async function DashboardPage() {
     supabase
       .from("deals")
       .select("*, company:companies(id,name), contact:contacts(id,name)")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false }),
     supabase
       .from("activities")
       .select("*, contact:contacts(id,name), deal:deals(id,name)")
+      .is("deleted_at", null)
       .order("occurred_at", { ascending: false }),
   ]);
 
@@ -30,7 +32,7 @@ export default async function DashboardPage() {
     return (
       <>
         <PageHeader crumb="Panel" title="Resumen de agencia" />
-        <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
           <EmptyWorkspace />
         </div>
       </>
@@ -55,8 +57,8 @@ export default async function DashboardPage() {
         subtitle={`${tasks.pendingCount} tareas pendientes · ${attention.length} deals requieren atención`}
       />
 
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
-        <div className="grid grid-cols-4 gap-4">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {kpis.map((k) => (
             <Link
               key={k.label}
@@ -88,7 +90,7 @@ export default async function DashboardPage() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-[1.55fr_1fr] gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
           <div className="panel px-6 pb-6 pt-[22px]">
             <div className="flex items-baseline justify-between">
               <div>

@@ -11,6 +11,7 @@ export default async function PipelinePage() {
   const { data } = await supabase
     .from("deals")
     .select("*, company:companies(id,name), contact:contacts(id,name)")
+    .is("deleted_at", null)
     .order("value", { ascending: false });
 
   const deals = (data ?? []) as Deal[];
@@ -24,7 +25,7 @@ export default async function PipelinePage() {
         subtitle={`${open} deals abiertos de ${deals.length} · arrastra o usa el clic derecho`}
         action={<NewButton href="/deals/new" label="+ Deal" />}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         <PipelineBoard deals={deals} />
       </div>
     </>

@@ -12,9 +12,9 @@ export default async function ReportsPage() {
   const supabase = createClient();
 
   const [{ data: deals }, { data: activities }, { data: companies }] = await Promise.all([
-    supabase.from("deals").select("*, company:companies(id,name)"),
-    supabase.from("activities").select("*"),
-    supabase.from("companies").select("*"),
+    supabase.from("deals").select("*, company:companies(id,name)").is("deleted_at", null),
+    supabase.from("activities").select("*").is("deleted_at", null),
+    supabase.from("companies").select("*").is("deleted_at", null),
   ]);
 
   const r = buildReports(
@@ -42,9 +42,9 @@ export default async function ReportsPage() {
     <>
       <PageHeader crumb="Analítica" title="Informes" subtitle="Todo calculado sobre tus datos reales" />
 
-      <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
         {/* tarjetas resumen */}
-        <div className="grid grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           {cards.map((c) => (
             <div key={c.label} className="panel px-4 pb-4 pt-[18px]">
               <div className="text-[10.5px] uppercase tracking-[0.09em] text-ink-350">
@@ -61,7 +61,7 @@ export default async function ReportsPage() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-[1.3fr_1fr] gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1.3fr_1fr]">
           {/* ingresos por mes */}
           <div className="panel px-6 pb-6 pt-[22px]">
             <div className="text-[15px] font-semibold tracking-[-0.01em]">
@@ -127,7 +127,7 @@ export default async function ReportsPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-4">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* top empresas */}
           <div className="panel px-5 pb-3 pt-[20px]">
             <div className="text-[14px] font-semibold tracking-[-0.01em]">
