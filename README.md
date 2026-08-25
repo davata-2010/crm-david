@@ -63,4 +63,4 @@ middleware.ts       refresco de sesión y guarda de rutas
 ## Notas
 
 - `.env.local` contiene la URL y la anon key del proyecto. La anon key es pública por diseño: el acceso lo controla RLS (`owner_id = auth.uid()`).
-- `SUPABASE_SERVICE_KEY` está en `.env.local` pero la app **no** la usa: todo pasa por la sesión del usuario. No la subas a un repo público.
+- `SUPABASE_SERVICE_KEY` está en `.env.local`, que es un fichero ignorado por git y nunca ha entrado en este repositorio. La app **no** la usa: todo el acceso pasa por la sesión del usuario y las políticas RLS.
