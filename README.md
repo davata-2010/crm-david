@@ -2,6 +2,10 @@
 
 Implementación del handoff de Claude Design `Aurum CRM.dc.html` en **Next.js 14 (App Router) + TypeScript + Tailwind + Supabase**.
 
+**En producción:** https://crm-david-538.netlify.app
+
+Cada push a `main` despliega automáticamente en Netlify.
+
 ## Puesta en marcha
 
 ### 1. Base de datos — ya aplicada
