@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import PageHeader from "@/components/PageHeader";
 import PipelineBoard from "@/components/PipelineBoard";
+import NewButton from "@/components/NewButton";
 import type { Deal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -13,22 +13,19 @@ export default async function PipelinePage() {
     .select("*, company:companies(id,name), contact:contacts(id,name)")
     .order("value", { ascending: false });
 
+  const deals = (data ?? []) as Deal[];
+  const open = deals.filter((d) => d.stage < 5).length;
+
   return (
     <>
       <PageHeader
         crumb="CRM"
         title="Pipeline"
-        action={
-          <Link
-            href="/deals/new"
-            className="rounded-[9px] bg-gold px-4 py-[9px] text-[12.5px] font-semibold text-ink-950 transition-colors hover:bg-gold-hover hover:text-ink-950"
-          >
-            + Deal
-          </Link>
-        }
+        subtitle={`${open} deals abiertos de ${deals.length} · arrastra o usa el clic derecho`}
+        action={<NewButton href="/deals/new" label="+ Deal" />}
       />
       <div className="min-h-0 flex-1 overflow-auto px-9 pb-12 pt-8">
-        <PipelineBoard deals={(data ?? []) as Deal[]} />
+        <PipelineBoard deals={deals} />
       </div>
     </>
   );

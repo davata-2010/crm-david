@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import PageHeader from "@/components/PageHeader";
 import ProfileForm from "@/components/ProfileForm";
+import DataSettings from "@/components/DataSettings";
 import { GOLD, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, initials, relative } from "@/lib/format";
 import type { Deal, Profile } from "@/lib/types";
@@ -13,6 +14,7 @@ const TABS: [string, string][] = [
   ["pipeline", "Pipeline"],
   ["team", "Equipo"],
   ["integrations", "Integraciones"],
+  ["data", "Datos"],
 ];
 
 const INTEGRATIONS = [
@@ -36,9 +38,18 @@ export default async function SettingsPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: profileData }, { data: dealsData }] = await Promise.all([
+  const [
+    { data: profileData },
+    { data: dealsData },
+    contactCount,
+    companyCount,
+    activityCount,
+  ] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", user!.id).maybeSingle(),
     supabase.from("deals").select("id, stage, value"),
+    supabase.from("contacts").select("id", { count: "exact", head: true }),
+    supabase.from("companies").select("id", { count: "exact", head: true }),
+    supabase.from("activities").select("id", { count: "exact", head: true }),
   ]);
 
   const profile = profileData as Profile | null;
@@ -151,6 +162,17 @@ export default async function SettingsPage({
                   </div>
                 </div>
               </div>
+            )}
+
+            {tab === "data" && (
+              <DataSettings
+                counts={{
+                  Contactos: contactCount.count ?? 0,
+                  Empresas: companyCount.count ?? 0,
+                  Deals: deals.length,
+                  Actividades: activityCount.count ?? 0,
+                }}
+              />
             )}
 
             {tab === "integrations" && (

@@ -7,13 +7,15 @@ export const dynamic = "force-dynamic";
 export default async function NewDealPage({
   searchParams,
 }: {
-  searchParams: { contact?: string };
+  searchParams: { contact?: string; company?: string; stage?: string };
 }) {
   const supabase = createClient();
   const [{ data: companies }, { data: contacts }] = await Promise.all([
     supabase.from("companies").select("id, name").order("name"),
     supabase.from("contacts").select("id, name, company_id").order("name"),
   ]);
+
+  const stage = Number(searchParams.stage);
 
   return (
     <>
@@ -23,6 +25,8 @@ export default async function NewDealPage({
           companies={companies ?? []}
           contacts={contacts ?? []}
           defaultContactId={searchParams.contact}
+          defaultCompanyId={searchParams.company}
+          defaultStage={Number.isFinite(stage) && stage >= 0 && stage <= 6 ? stage : undefined}
         />
       </div>
     </>

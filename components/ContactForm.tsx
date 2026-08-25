@@ -11,10 +11,12 @@ const STATUSES: ContactStatus[] = ["lead", "prospect", "customer"];
 export default function ContactForm({
   companies,
   contact,
+  defaultCompanyId,
   onDone,
 }: {
   companies: Pick<Company, "id" | "name">[];
   contact?: Contact;
+  defaultCompanyId?: string;
   onDone?: () => void;
 }) {
   const router = useRouter();
@@ -86,7 +88,7 @@ export default function ContactForm({
           />
         </Field>
         <Field label="Empresa">
-          <select name="company_id" className="field" defaultValue={contact?.company_id ?? ""}>
+          <select name="company_id" className="field" defaultValue={contact?.company_id ?? defaultCompanyId ?? ""}>
             <option value="">Sin empresa</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
@@ -141,6 +143,18 @@ export default function ContactForm({
           />
         </Field>
       </div>
+
+      <Field label="Etiquetas">
+        <input
+          name="tags"
+          className="field"
+          defaultValue={(contact?.tags ?? []).join(", ")}
+          placeholder="enterprise, inbound, prioridad alta"
+        />
+        <div className="mt-1.5 text-[11px] text-ink-500">
+          Separadas por comas. Máximo 12.
+        </div>
+      </Field>
 
       {error && (
         <div className="rounded-[10px] border border-[rgba(250,197,28,0.25)] bg-[rgba(250,197,28,0.06)] px-3 py-2.5 text-[12.5px] text-gold">

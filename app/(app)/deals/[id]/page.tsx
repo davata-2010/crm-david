@@ -7,6 +7,8 @@ import AddActivity from "@/components/AddActivity";
 import DealForm from "@/components/DealForm";
 import EditToggle from "@/components/EditToggle";
 import StageSwitcher from "@/components/StageSwitcher";
+import DealActions from "@/components/DealActions";
+import Tag from "@/components/Tag";
 import { GOLD, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, initials, shortDate, relative } from "@/lib/format";
 import type { Activity, Deal } from "@/lib/types";
@@ -18,7 +20,7 @@ export default async function DealDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { edit?: string };
+  searchParams: { edit?: string; task?: string };
 }) {
   const supabase = createClient();
 
@@ -57,6 +59,9 @@ export default async function DealDetailPage({
     { label: "Empresa", value: deal.company?.name || "—" },
     { label: "Contacto", value: deal.contact?.name || "—" },
     { label: "Tipo", value: deal.project_type },
+    ...(deal.stage === 6
+      ? [{ label: "Motivo pérdida", value: deal.lost_reason || "Sin especificar" }]
+      : []),
     { label: "Creado", value: relative(deal.created_at) },
     { label: "Actualizado", value: relative(deal.updated_at) },
   ];
@@ -91,16 +96,33 @@ export default async function DealDetailPage({
                       <span
                         className="rounded-full px-[11px] py-1 text-[11px] font-semibold"
                         style={{
-                          background: deal.stage === 5 ? GOLD : "rgba(250,197,28,0.1)",
-                          color: deal.stage === 5 ? "#080808" : GOLD,
+                          background:
+                            deal.stage === 6
+                              ? "rgba(255,143,122,0.12)"
+                              : deal.stage === 5
+                                ? GOLD
+                                : "rgba(250,197,28,0.1)",
+                          color:
+                            deal.stage === 6 ? "#FF8F7A" : deal.stage === 5 ? "#080808" : GOLD,
                           border: `1px solid ${
-                            deal.stage === 5 ? GOLD : "rgba(250,197,28,0.35)"
+                            deal.stage === 6
+                              ? "rgba(255,143,122,0.4)"
+                              : deal.stage === 5
+                                ? GOLD
+                                : "rgba(250,197,28,0.35)"
                           }`,
                         }}
                       >
                         {STAGES[deal.stage]}
                       </span>
                     </div>
+                    {(deal.tags ?? []).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(deal.tags ?? []).map((t) => (
+                          <Tag key={t} tag={t} />
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-[5px] text-[13px] text-ink-300">
                       {deal.company?.name || "Sin empresa"} ·{" "}
                       {deal.contact ? (
@@ -111,6 +133,7 @@ export default async function DealDetailPage({
                     </div>
                   </div>
                   <EditToggle />
+                  <DealActions deal={deal} />
                 </div>
 
                 <div className="mt-6 grid grid-cols-4 gap-px overflow-hidden rounded-[11px] bg-hair">
@@ -162,7 +185,11 @@ export default async function DealDetailPage({
                 </div>
               </div>
 
-              <AddActivity dealId={deal.id} contactId={deal.contact_id ?? undefined} />
+              <AddActivity
+                dealId={deal.id}
+                contactId={deal.contact_id ?? undefined}
+                startAsTask={searchParams.task === "1"}
+              />
             </div>
           </div>
         )}

@@ -4,7 +4,11 @@ import ContactForm from "@/components/ContactForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewContactPage() {
+export default async function NewContactPage({
+  searchParams,
+}: {
+  searchParams: { company?: string };
+}) {
   const supabase = createClient();
   const { data: companies } = await supabase
     .from("companies")
@@ -22,7 +26,7 @@ export default async function NewContactPage() {
           <div className="mb-6 mt-1 text-[12.5px] text-ink-350">
             Los campos marcados con · son obligatorios.
           </div>
-          <ContactForm companies={companies ?? []} />
+          <ContactForm companies={companies ?? []} defaultCompanyId={searchParams.company} />
         </div>
       </div>
     </>

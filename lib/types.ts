@@ -17,6 +17,8 @@ export type Company = {
   industry: string | null;
   website: string | null;
   notes: string | null;
+  country: string | null;
+  size: string | null;
   created_at: string;
 };
 
@@ -31,6 +33,7 @@ export type Contact = {
   status: ContactStatus;
   source: string | null;
   timezone: string | null;
+  tags: string[];
   created_at: string;
   updated_at: string;
   company?: Pick<Company, "id" | "name" | "industry"> | null;
@@ -48,6 +51,8 @@ export type Deal = {
   close_date: string | null;
   notes: string | null;
   owner_initials: string | null;
+  lost_reason: string | null;
+  tags: string[];
   created_at: string;
   updated_at: string;
   closed_at: string | null;
@@ -65,5 +70,10 @@ export type Activity = {
   body: string | null;
   author: string | null;
   occurred_at: string;
+  due_date: string | null;
+  completed: boolean;
+  completed_at: string | null;
   created_at: string;
+  contact?: { id: string; name: string } | null;
+  deal?: { id: string; name: string } | null;
 };

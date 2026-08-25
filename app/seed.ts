@@ -16,14 +16,14 @@ const COMPANIES = [
 ];
 
 const CONTACTS = [
-  { name: "Elena Vidal", email: "elena@northbeam.io", company: "Northbeam", status: "customer", role: "VP Operations", phone: "+34 611 88 04 21", source: "LinkedIn orgánico" },
-  { name: "Tomás Aguirre", email: "t.aguirre@lumendata.com", company: "Lumen Data", status: "prospect", role: "Head of Data", phone: "+34 622 10 55 09", source: "Referido" },
-  { name: "Nadia Kirsch", email: "nadia@parallelhq.com", company: "Parallel HQ", status: "lead", role: "Founder", phone: "+34 633 71 22 88", source: "Landing agentes" },
-  { name: "Bruno Sala", email: "bruno.sala@veridian.co", company: "Veridian", status: "customer", role: "CTO", phone: "+34 644 02 19 37", source: "Evento" },
-  { name: "Irene Castells", email: "irene@quantalabs.ai", company: "Quanta Labs", status: "prospect", role: "Product Lead", phone: "+34 655 63 40 12", source: "Newsletter" },
-  { name: "Marc Oliveras", email: "marc@hexafleet.com", company: "Hexafleet", status: "lead", role: "COO", phone: "+34 666 91 33 74", source: "Cold outbound" },
-  { name: "Sofía Renard", email: "sofia@atlasgrid.eu", company: "Atlas Grid", status: "prospect", role: "Innovation Dir.", phone: "+34 677 45 80 61", source: "Webinar" },
-  { name: "Iván Bosch", email: "ivan@cobaltworks.io", company: "Cobalt Works", status: "customer", role: "Head of CX", phone: "+34 688 27 16 50", source: "Referido" },
+  { name: "Elena Vidal", email: "elena@northbeam.io", company: "Northbeam", status: "customer", role: "VP Operations", phone: "+34 611 88 04 21", source: "LinkedIn orgánico", tags: "enterprise, referencia" },
+  { name: "Tomás Aguirre", email: "t.aguirre@lumendata.com", company: "Lumen Data", status: "prospect", role: "Head of Data", phone: "+34 622 10 55 09", source: "Referido", tags: "inbound" },
+  { name: "Nadia Kirsch", email: "nadia@parallelhq.com", company: "Parallel HQ", status: "lead", role: "Founder", phone: "+34 633 71 22 88", source: "Landing agentes", tags: "startup, inbound" },
+  { name: "Bruno Sala", email: "bruno.sala@veridian.co", company: "Veridian", status: "customer", role: "CTO", phone: "+34 644 02 19 37", source: "Evento", tags: "enterprise, prioridad alta" },
+  { name: "Irene Castells", email: "irene@quantalabs.ai", company: "Quanta Labs", status: "prospect", role: "Product Lead", phone: "+34 655 63 40 12", source: "Newsletter", tags: "research" },
+  { name: "Marc Oliveras", email: "marc@hexafleet.com", company: "Hexafleet", status: "lead", role: "COO", phone: "+34 666 91 33 74", source: "Cold outbound", tags: "outbound" },
+  { name: "Sofía Renard", email: "sofia@atlasgrid.eu", company: "Atlas Grid", status: "prospect", role: "Innovation Dir.", phone: "+34 677 45 80 61", source: "Webinar", tags: "energia" },
+  { name: "Iván Bosch", email: "ivan@cobaltworks.io", company: "Cobalt Works", status: "customer", role: "Head of CX", phone: "+34 688 27 16 50", source: "Referido", tags: "enterprise" },
 ];
 
 const DEALS = [
@@ -37,6 +37,7 @@ const DEALS = [
   { name: "Evaluación de modelos", company: "Cobalt Works", contact: "Iván Bosch", value: 52000, stage: 4, type: "Evals", close: 33, owner: "MR" },
   { name: "Retainer de datos", company: "Northbeam", contact: "Elena Vidal", value: 36000, stage: 4, type: "RAG", close: 51, owner: "JP" },
   { name: "Piloto de agentes multi-tool", company: "Veridian", contact: "Bruno Sala", value: 44000, stage: 5, type: "Agentes", close: 7, owner: "AL" },
+  { name: "Chatbot de captación", company: "Parallel HQ", contact: "Nadia Kirsch", value: 18000, stage: 6, type: "Copilotos", close: -12, owner: "MR" },
 ];
 
 const TIMELINE = [
@@ -100,6 +101,7 @@ export async function seedDemoData() {
         status: c.status,
         source: c.source,
         timezone: "CET · Madrid",
+        tags: (c as { tags?: string }).tags?.split(", ") ?? [],
         created_at: daysAgo(120 - i * 9),
       }))
     )
@@ -120,9 +122,11 @@ export async function seedDemoData() {
         project_type: d.type,
         close_date: dateAhead(d.close),
         owner_initials: d.owner,
+        tags: d.stage === 6 ? [] : d.value >= 60000 ? ["enterprise"] : ["pyme"],
+        lost_reason: d.stage === 6 ? "Eligió a un competidor" : "",
         notes: "",
         created_at: daysAgo(90 - i * 6),
-        closed_at: d.stage === 5 ? daysAgo(3) : null,
+        closed_at: d.stage >= 5 ? daysAgo(3) : null,
       }))
     )
     .select("id, name, contact_id");
@@ -149,7 +153,34 @@ export async function seedDemoData() {
       body: u.body,
       author,
       occurred_at: daysAhead(u.inDays),
+      due_date: daysAhead(u.inDays),
+      completed: false,
     })),
+    // Dos tareas ya vencidas, para que se vea el aviso rojo del dashboard.
+    {
+      owner_id: user.id,
+      contact_id: contactId.get("Marc Oliveras") ?? null,
+      deal_id: deals!.find((d) => d.name === "Voice agent para reservas")?.id ?? null,
+      kind: "Llamada",
+      title: "Llamar a Marc: sigue sin responder",
+      body: "Tercer intento. Si no contesta, mover a nurturing.",
+      author,
+      occurred_at: daysAgo(2),
+      due_date: daysAgo(2),
+      completed: false,
+    },
+    {
+      owner_id: user.id,
+      contact_id: contactId.get("Irene Castells") ?? null,
+      deal_id: deals!.find((d) => d.name === "Automatización de onboarding")?.id ?? null,
+      kind: "Tarea",
+      title: "Enviar estimación de esfuerzo a Quanta Labs",
+      body: "Pidieron desglose por fases antes del comité.",
+      author,
+      occurred_at: daysAgo(5),
+      due_date: daysAgo(5),
+      completed: false,
+    },
   ];
 
   const { error: aErr } = await supabase.from("activities").insert(activities);

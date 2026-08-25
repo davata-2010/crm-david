@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { STAGES, STAGE_PROBABILITY } from "@/lib/constants";
+import { STAGES, STAGE_PROBABILITY, type ContactStatus } from "@/lib/constants";
 import { initials } from "@/lib/format";
 
 async function ctx() {
@@ -30,6 +30,13 @@ const num = (v: FormDataEntryValue | null) =>
 
 const str = (v: FormDataEntryValue | null) => String(v ?? "").trim();
 
+const parseTags = (v: FormDataEntryValue | null) =>
+  String(v ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
 /* ------------------------------------------------------------------ empresas */
 
 export async function createCompany(formData: FormData) {
@@ -41,6 +48,8 @@ export async function createCompany(formData: FormData) {
       name: str(formData.get("name")),
       industry: str(formData.get("industry")),
       website: str(formData.get("website")),
+      country: str(formData.get("country")),
+      size: str(formData.get("size")),
       notes: str(formData.get("notes")),
     })
     .select("id")
@@ -58,6 +67,8 @@ export async function updateCompany(id: string, formData: FormData) {
       name: str(formData.get("name")),
       industry: str(formData.get("industry")),
       website: str(formData.get("website")),
+      country: str(formData.get("country")),
+      size: str(formData.get("size")),
       notes: str(formData.get("notes")),
     })
     .eq("id", id);
@@ -78,12 +89,11 @@ export async function deleteCompany(id: string) {
 
 export async function createContact(formData: FormData) {
   const { supabase, user, author } = await ctx();
-  const name = str(formData.get("name"));
   const { data, error } = await supabase
     .from("contacts")
     .insert({
       owner_id: user.id,
-      name,
+      name: str(formData.get("name")),
       email: str(formData.get("email")),
       phone: str(formData.get("phone")),
       role: str(formData.get("role")),
@@ -91,6 +101,7 @@ export async function createContact(formData: FormData) {
       source: str(formData.get("source")),
       timezone: str(formData.get("timezone")) || "CET · Madrid",
       company_id: str(formData.get("company_id")) || null,
+      tags: parseTags(formData.get("tags")),
     })
     .select("id")
     .single();
@@ -121,6 +132,7 @@ export async function updateContact(id: string, formData: FormData) {
       source: str(formData.get("source")),
       timezone: str(formData.get("timezone")),
       company_id: str(formData.get("company_id")) || null,
+      tags: parseTags(formData.get("tags")),
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -136,11 +148,137 @@ export async function deleteContact(id: string) {
   return {};
 }
 
+export async function duplicateContact(id: string) {
+  const { supabase, user } = await ctx();
+  const { data: src, error } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (error) return { error: error.message };
+  const { id: _id, created_at, updated_at, ...rest } = src as Record<string, unknown>;
+  const { data, error: insErr } = await supabase
+    .from("contacts")
+    .insert({ ...rest, owner_id: user.id, name: `${src.name} (copia)` })
+    .select("id")
+    .single();
+  if (insErr) return { error: insErr.message };
+  revalidateAll();
+  return { id: data.id };
+}
+
+/* ------------------------------------------------------- contactos: en lote */
+
+export async function bulkDeleteContacts(ids: string[]) {
+  const { supabase } = await ctx();
+  if (ids.length === 0) return {};
+  const { error } = await supabase.from("contacts").delete().in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function bulkSetContactStatus(ids: string[], status: ContactStatus) {
+  const { supabase } = await ctx();
+  if (ids.length === 0) return {};
+  const { error } = await supabase.from("contacts").update({ status }).in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function bulkSetContactCompany(ids: string[], companyId: string | null) {
+  const { supabase } = await ctx();
+  if (ids.length === 0) return {};
+  const { error } = await supabase
+    .from("contacts")
+    .update({ company_id: companyId })
+    .in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function bulkTagContacts(ids: string[], tag: string, remove = false) {
+  const { supabase } = await ctx();
+  const clean = tag.trim();
+  if (ids.length === 0 || !clean) return {};
+  const { data, error } = await supabase.from("contacts").select("id, tags").in("id", ids);
+  if (error) return { error: error.message };
+  for (const row of data ?? []) {
+    const current: string[] = row.tags ?? [];
+    const next = remove
+      ? current.filter((t) => t !== clean)
+      : Array.from(new Set([...current, clean])).slice(0, 12);
+    await supabase.from("contacts").update({ tags: next }).eq("id", row.id);
+  }
+  revalidateAll();
+  return { count: ids.length };
+}
+
+/** Importación CSV. Crea las empresas que falten por nombre. */
+export async function importContacts(
+  rows: {
+    name: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+    company?: string;
+    status?: string;
+    tags?: string;
+  }[]
+) {
+  const { supabase, user } = await ctx();
+  const valid = rows.filter((r) => r.name?.trim());
+  if (valid.length === 0) return { error: "No hay filas con nombre." };
+
+  const { data: existing } = await supabase.from("companies").select("id, name");
+  const byName = new Map((existing ?? []).map((c) => [c.name.toLowerCase(), c.id]));
+
+  const missing = Array.from(
+    new Set(
+      valid
+        .map((r) => r.company?.trim())
+        .filter((n): n is string => !!n && !byName.has(n.toLowerCase()))
+        .map((n) => n)
+    )
+  );
+  if (missing.length) {
+    const { data: created, error } = await supabase
+      .from("companies")
+      .insert(missing.map((name) => ({ owner_id: user.id, name })))
+      .select("id, name");
+    if (error) return { error: error.message };
+    (created ?? []).forEach((c) => byName.set(c.name.toLowerCase(), c.id));
+  }
+
+  const statuses = ["lead", "prospect", "customer"];
+  const { error } = await supabase.from("contacts").insert(
+    valid.map((r) => ({
+      owner_id: user.id,
+      name: r.name.trim(),
+      email: r.email?.trim() ?? "",
+      phone: r.phone?.trim() ?? "",
+      role: r.role?.trim() ?? "",
+      status: statuses.includes(String(r.status).trim()) ? String(r.status).trim() : "lead",
+      company_id: r.company?.trim() ? byName.get(r.company.trim().toLowerCase()) ?? null : null,
+      tags: (r.tags ?? "")
+        .split(/[,;|]/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .slice(0, 12),
+    }))
+  );
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: valid.length };
+}
+
 /* --------------------------------------------------------------------- deals */
 
 export async function createDeal(formData: FormData) {
   const { supabase, user, author } = await ctx();
-  const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as any));
+  const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as never));
   const { data, error } = await supabase
     .from("deals")
     .insert({
@@ -153,6 +291,8 @@ export async function createDeal(formData: FormData) {
       notes: str(formData.get("notes")),
       company_id: str(formData.get("company_id")) || null,
       contact_id: str(formData.get("contact_id")) || null,
+      tags: parseTags(formData.get("tags")),
+      lost_reason: stageIndex === 6 ? str(formData.get("lost_reason")) : "",
       owner_initials: initials(author),
     })
     .select("id")
@@ -174,7 +314,7 @@ export async function createDeal(formData: FormData) {
 
 export async function updateDeal(id: string, formData: FormData) {
   const { supabase } = await ctx();
-  const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as any));
+  const stageIndex = Math.max(0, STAGES.indexOf(str(formData.get("stage")) as never));
   const { error } = await supabase
     .from("deals")
     .update({
@@ -186,6 +326,8 @@ export async function updateDeal(id: string, formData: FormData) {
       notes: str(formData.get("notes")),
       company_id: str(formData.get("company_id")) || null,
       contact_id: str(formData.get("contact_id")) || null,
+      tags: parseTags(formData.get("tags")),
+      lost_reason: stageIndex === 6 ? str(formData.get("lost_reason")) : "",
     })
     .eq("id", id);
   if (error) return { error: error.message };
@@ -194,7 +336,7 @@ export async function updateDeal(id: string, formData: FormData) {
 }
 
 /** Movimiento de tarjeta en el kanban. Registra la actividad automáticamente. */
-export async function moveDealStage(id: string, stage: number) {
+export async function moveDealStage(id: string, stage: number, lostReason?: string) {
   const { supabase, user, author } = await ctx();
   const { data: before } = await supabase
     .from("deals")
@@ -203,7 +345,10 @@ export async function moveDealStage(id: string, stage: number) {
     .single();
   if (!before || before.stage === stage) return {};
 
-  const { error } = await supabase.from("deals").update({ stage }).eq("id", id);
+  const patch: Record<string, unknown> = { stage };
+  if (stage === 6) patch.lost_reason = lostReason ?? "";
+
+  const { error } = await supabase.from("deals").update(patch).eq("id", id);
   if (error) return { error: error.message };
 
   await supabase.from("activities").insert({
@@ -212,7 +357,10 @@ export async function moveDealStage(id: string, stage: number) {
     contact_id: before.contact_id,
     kind: "Pipeline",
     title: `Deal movido a ${STAGES[stage]}`,
-    body: `Etapa actualizada desde ${STAGES[before.stage]}. Probabilidad al ${STAGE_PROBABILITY[stage]}%.`,
+    body:
+      stage === 6 && lostReason
+        ? `Etapa actualizada desde ${STAGES[before.stage]}. Motivo: ${lostReason}.`
+        : `Etapa actualizada desde ${STAGES[before.stage]}. Probabilidad al ${STAGE_PROBABILITY[stage]}%.`,
     author,
   });
   revalidateAll();
@@ -227,6 +375,30 @@ export async function deleteDeal(id: string) {
   return {};
 }
 
+export async function bulkDeleteDeals(ids: string[]) {
+  const { supabase } = await ctx();
+  if (ids.length === 0) return {};
+  const { error } = await supabase.from("deals").delete().in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
+}
+
+export async function duplicateDeal(id: string) {
+  const { supabase, user } = await ctx();
+  const { data: src, error } = await supabase.from("deals").select("*").eq("id", id).single();
+  if (error) return { error: error.message };
+  const { id: _id, created_at, updated_at, closed_at, ...rest } = src as Record<string, unknown>;
+  const { data, error: insErr } = await supabase
+    .from("deals")
+    .insert({ ...rest, owner_id: user.id, name: `${src.name} (copia)`, stage: 0 })
+    .select("id")
+    .single();
+  if (insErr) return { error: insErr.message };
+  revalidateAll();
+  return { id: data.id };
+}
+
 /* ---------------------------------------------------------------- actividades */
 
 export async function addActivity(formData: FormData) {
@@ -234,6 +406,7 @@ export async function addActivity(formData: FormData) {
   const body = str(formData.get("body"));
   const title = str(formData.get("title")) || body.slice(0, 60) || "Nota";
   const occurred = str(formData.get("occurred_at"));
+  const due = str(formData.get("due_date"));
   const { error } = await supabase.from("activities").insert({
     owner_id: user.id,
     contact_id: str(formData.get("contact_id")) || null,
@@ -242,9 +415,37 @@ export async function addActivity(formData: FormData) {
     title,
     body,
     author,
+    due_date: due ? new Date(due).toISOString() : null,
     occurred_at: occurred ? new Date(occurred).toISOString() : new Date().toISOString(),
   });
   if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function toggleActivityCompleted(id: string, completed: boolean) {
+  const { supabase } = await ctx();
+  const { error } = await supabase.from("activities").update({ completed }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+export async function snoozeActivity(id: string, days: number) {
+  const { supabase } = await ctx();
+  const { data: row, error } = await supabase
+    .from("activities")
+    .select("due_date")
+    .eq("id", id)
+    .single();
+  if (error) return { error: error.message };
+  const base = row.due_date ? new Date(row.due_date) : new Date();
+  base.setDate(base.getDate() + days);
+  const { error: upErr } = await supabase
+    .from("activities")
+    .update({ due_date: base.toISOString() })
+    .eq("id", id);
+  if (upErr) return { error: upErr.message };
   revalidateAll();
   return {};
 }
@@ -255,6 +456,15 @@ export async function deleteActivity(id: string) {
   if (error) return { error: error.message };
   revalidateAll();
   return {};
+}
+
+export async function bulkDeleteActivities(ids: string[]) {
+  const { supabase } = await ctx();
+  if (ids.length === 0) return {};
+  const { error } = await supabase.from("activities").delete().in("id", ids);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { count: ids.length };
 }
 
 /* -------------------------------------------------------------------- perfil */
@@ -276,6 +486,17 @@ export async function updateProfile(formData: FormData) {
     prefs,
   });
   if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/** Borra todos los datos del workspace (no la cuenta). */
+export async function wipeWorkspace() {
+  const { supabase, user } = await ctx();
+  for (const table of ["activities", "deals", "contacts", "companies"]) {
+    const { error } = await supabase.from(table).delete().eq("owner_id", user.id);
+    if (error) return { error: error.message };
+  }
   revalidateAll();
   return {};
 }

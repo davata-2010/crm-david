@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createDeal, updateDeal, deleteDeal } from "@/app/actions";
-import { GOLD, PROJECT_TYPES, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
+import { GOLD, LOST, LOST_REASONS, PROJECT_TYPES, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, shortDate } from "@/lib/format";
 import type { Company, Contact, Deal } from "@/lib/types";
 
@@ -14,11 +14,15 @@ export default function DealForm({
   contacts,
   deal,
   defaultContactId,
+  defaultCompanyId,
+  defaultStage,
 }: {
   companies: Opt[];
   contacts: Pick<Contact, "id" | "name" | "company_id">[];
   deal?: Deal;
   defaultContactId?: string;
+  defaultCompanyId?: string;
+  defaultStage?: number;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -29,6 +33,7 @@ export default function DealForm({
     deal?.contact_id ?? defaultContactId ?? contacts[0]?.id ?? "";
   const initialCompany =
     deal?.company_id ??
+    defaultCompanyId ??
     contacts.find((c) => c.id === initialContact)?.company_id ??
     companies[0]?.id ??
     "";
@@ -39,9 +44,11 @@ export default function DealForm({
     contact_id: initialContact,
     value: deal ? String(Math.round(Number(deal.value))) : "",
     close_date: deal?.close_date ?? "",
-    stage: STAGES[deal?.stage ?? 1],
+    stage: STAGES[deal?.stage ?? defaultStage ?? 1],
     project_type: deal?.project_type ?? "Agentes",
     notes: deal?.notes ?? "",
+    tags: (deal?.tags ?? []).join(", "),
+    lost_reason: deal?.lost_reason ?? "",
   });
 
   const set = (k: keyof typeof form) => (v: string) => {
@@ -177,6 +184,24 @@ export default function DealForm({
             value={form.project_type}
             onChange={set("project_type")}
           />
+
+          {stageIndex === LOST && (
+            <Chips
+              label="Motivo de la pérdida"
+              options={LOST_REASONS}
+              value={form.lost_reason}
+              onChange={set("lost_reason")}
+            />
+          )}
+
+          <Label text="Etiquetas">
+            <input
+              className="field"
+              value={form.tags}
+              onChange={(e) => set("tags")(e.target.value)}
+              placeholder="urgente, upsell, q4"
+            />
+          </Label>
 
           <Label text="Notas">
             <textarea

@@ -5,7 +5,9 @@ import PageHeader from "@/components/PageHeader";
 import Timeline from "@/components/Timeline";
 import AddActivity from "@/components/AddActivity";
 import ContactForm from "@/components/ContactForm";
+import ContactActions from "@/components/ContactActions";
 import EditToggle from "@/components/EditToggle";
+import Tag from "@/components/Tag";
 import { STATUS, STAGES, GOLD, type ContactStatus } from "@/lib/constants";
 import { eur, initials, shortDate } from "@/lib/format";
 import type { Activity, Contact, Deal } from "@/lib/types";
@@ -17,7 +19,7 @@ export default async function ContactDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { edit?: string };
+  searchParams: { edit?: string; task?: string };
 }) {
   const supabase = createClient();
 
@@ -48,6 +50,10 @@ export default async function ContactDetailPage({
   const activities = (activitiesData ?? []) as Activity[];
   const openDeals = deals.filter((d) => d.stage < 5);
   const wonDeals = deals.filter((d) => d.stage === 5);
+  const pendingTasks = activities
+    .filter((a) => a.due_date && !a.completed)
+    .sort((a, b) => +new Date(a.due_date!) - +new Date(b.due_date!));
+
   const totalValue = deals.reduce((a, d) => a + Number(d.value), 0);
   const badge = STATUS[contact.status as ContactStatus] ?? STATUS.lead;
   const editing = searchParams.edit === "1";
@@ -57,12 +63,9 @@ export default async function ContactDetailPage({
     { label: "Deals ganados", value: String(wonDeals.length), color: "#F5F5F5" },
     { label: "Actividades", value: String(activities.length), color: "#F5F5F5" },
     {
-      label: "Contacto desde",
-      value: new Date(contact.created_at).toLocaleDateString("es-ES", {
-        month: "short",
-        year: "numeric",
-      }),
-      color: "#F5F5F5",
+      label: "Tareas abiertas",
+      value: String(pendingTasks.length),
+      color: pendingTasks.length ? GOLD : "#F5F5F5",
     },
   ];
 
@@ -71,9 +74,8 @@ export default async function ContactDetailPage({
     { label: "Teléfono", value: contact.phone || "—" },
     {
       label: "Empresa",
-      value: contact.company
-        ? `${contact.company.name}${contact.company.industry ? ` · ${contact.company.industry}` : ""}`
-        : "—",
+      value: contact.company?.name ?? "—",
+      href: contact.company ? `/companies/${contact.company.id}` : undefined,
     },
     { label: "Cargo", value: contact.role || "—" },
     { label: "Origen", value: contact.source || "—" },
@@ -99,10 +101,7 @@ export default async function ContactDetailPage({
                 <div className="mb-5 text-[15px] font-semibold tracking-[-0.01em]">
                   Editar contacto
                 </div>
-                <ContactForm
-                  companies={companies ?? []}
-                  contact={contact}
-                />
+                <ContactForm companies={companies ?? []} contact={contact} />
               </div>
             ) : (
               <div className="panel px-[26px] pb-[22px] pt-[26px]">
@@ -127,8 +126,22 @@ export default async function ContactDetailPage({
                       </span>
                     </div>
                     <div className="mt-[5px] text-[13px] text-ink-300">
-                      {contact.role || "Sin cargo"} · {contact.company?.name || "Sin empresa"}
+                      {contact.role || "Sin cargo"} ·{" "}
+                      {contact.company ? (
+                        <Link href={`/companies/${contact.company.id}`}>
+                          {contact.company.name}
+                        </Link>
+                      ) : (
+                        "Sin empresa"
+                      )}
                     </div>
+                    {(contact.tags ?? []).length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {(contact.tags ?? []).map((t) => (
+                          <Tag key={t} tag={t} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-[9px]">
                     {contact.email && (
@@ -146,6 +159,7 @@ export default async function ContactDetailPage({
                     >
                       Nuevo deal
                     </Link>
+                    <ContactActions contact={contact} />
                   </div>
                 </div>
 
@@ -171,6 +185,42 @@ export default async function ContactDetailPage({
           </div>
 
           <div className="flex flex-col gap-4">
+            {pendingTasks.length > 0 && (
+              <div className="panel px-[22px] pb-4 pt-[22px]">
+                <div className="flex items-baseline justify-between">
+                  <div className="text-[14px] font-semibold">Tareas pendientes</div>
+                  <Link href="/tasks" className="text-[11.5px]">
+                    Ver todas
+                  </Link>
+                </div>
+                <div className="mt-3 flex flex-col gap-2">
+                  {pendingTasks.slice(0, 5).map((t) => {
+                    const overdue = new Date(t.due_date!).getTime() < Date.now();
+                    return (
+                      <div
+                        key={t.id}
+                        className="rounded-[10px] border border-hair bg-ink-800 px-3 py-2.5"
+                      >
+                        <div className="truncate text-[12.5px] font-medium">{t.title}</div>
+                        <div
+                          className="mt-1 text-[11px]"
+                          style={{ color: overdue ? "#FF8F7A" : "#7A7A7A" }}
+                        >
+                          {overdue ? "Vencida · " : ""}
+                          {new Date(t.due_date!).toLocaleString("es-ES", {
+                            day: "2-digit",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="panel px-[22px] pb-2.5 pt-[22px]">
               <div className="text-[14px] font-semibold">Datos</div>
               <div className="mt-2">
@@ -180,7 +230,13 @@ export default async function ContactDetailPage({
                     className="hair-t flex justify-between gap-3.5 py-[11px] text-[12.5px]"
                   >
                     <span className="text-ink-350">{f.label}</span>
-                    <span className="text-right text-ink-100">{f.value}</span>
+                    {f.href ? (
+                      <Link href={f.href} className="truncate text-right">
+                        {f.value}
+                      </Link>
+                    ) : (
+                      <span className="truncate text-right text-ink-100">{f.value}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -202,7 +258,7 @@ export default async function ContactDetailPage({
                     className="rounded-[10px] border border-hair bg-ink-800 p-[13px] text-ink-50 transition-colors hover:border-[rgba(250,197,28,0.45)] hover:text-ink-50"
                   >
                     <div className="flex justify-between gap-2.5">
-                      <span className="text-[12.5px] font-semibold">{d.name}</span>
+                      <span className="truncate text-[12.5px] font-semibold">{d.name}</span>
                       <span className="tnum text-[12.5px] font-semibold text-gold">
                         {eur(Number(d.value))}
                       </span>
@@ -215,7 +271,7 @@ export default async function ContactDetailPage({
               </div>
             </div>
 
-            <AddActivity contactId={contact.id} />
+            <AddActivity contactId={contact.id} startAsTask={searchParams.task === "1"} />
           </div>
         </div>
       </div>
