@@ -863,3 +863,107 @@ export async function deleteActivity(id: string) {
 export async function bulkDeleteActivities(ids: string[]) {
   return softDelete("activities", ids);
 }
+
+/* ==================================================== edición en celda ==== */
+
+const CELL_WRITABLE = new Set([
+  "name",
+  "email",
+  "phone",
+  "role",
+  "status",
+  "source",
+  "timezone",
+  "company_id",
+  "assigned_to",
+  "tags",
+]);
+
+/**
+ * Edición directa desde la cuadrícula. Una celda, un valor.
+ * `key` puede ser una columna o `custom.<clave>` para un campo personalizado.
+ */
+export async function updateContactField(
+  id: string,
+  key: string,
+  value: string | string[] | null
+): Promise<Result> {
+  const s = await guard();
+
+  if (key.startsWith("custom.")) {
+    const field = key.slice(7);
+    const { data: row, error: readErr } = await s.supabase
+      .from("contacts")
+      .select("custom")
+      .eq("id", id)
+      .single();
+    if (readErr) return { error: readErr.message };
+    const custom = { ...((row.custom ?? {}) as Record<string, unknown>) };
+    if (value === null || value === "") delete custom[field];
+    else custom[field] = value;
+    const { error } = await s.supabase.from("contacts").update({ custom }).eq("id", id);
+    if (error) return { error: error.message };
+    revalidateAll();
+    return {};
+  }
+
+  if (!CELL_WRITABLE.has(key)) return { error: `El campo "${key}" no es editable.` };
+
+  let next: string | string[] | null = value;
+  if (key === "tags") {
+    next = Array.isArray(value)
+      ? value
+      : String(value ?? "")
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .slice(0, 12);
+  } else if (key === "company_id" || key === "assigned_to") {
+    next = value ? String(value) : null;
+  } else if (key === "status") {
+    const allowed = ["lead", "prospect", "customer"];
+    if (!allowed.includes(String(value))) return { error: "Estado no válido." };
+  } else {
+    next = String(value ?? "");
+  }
+
+  const { error } = await s.supabase
+    .from("contacts")
+    .update({ [key]: next })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/** Alta rápida desde la última fila de la cuadrícula. */
+export async function quickCreateContact(name: string): Promise<Result> {
+  const s = await guard();
+  const clean = name.trim();
+  if (!clean) return { error: "Escribe un nombre." };
+  const { data, error } = await s.supabase
+    .from("contacts")
+    .insert({
+      workspace_id: s.workspace.id,
+      owner_id: s.userId,
+      assigned_to: s.userId,
+      name: clean,
+      status: "lead",
+    })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { id: data.id };
+}
+
+export async function updateSavedView(
+  id: string,
+  config: Record<string, string>
+): Promise<Result> {
+  const s = await guard();
+  const { error } = await s.supabase.from("saved_views").update({ config }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}

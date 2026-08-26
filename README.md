@@ -66,6 +66,23 @@ Barra lateral deslizante, rejillas que colapsan y tablas con scroll horizontal. 
 | Papelera | `/trash` | Restaurar o borrar definitivamente |
 | Ajustes | `/settings` | Perfil, equipo, pipeline, campos personalizados, API, historial de cambios y datos |
 
+### Contactos: cuadrícula al estilo Airtable
+
+`/contacts` dejó de ser una tabla de solo lectura y pasó a ser una hoja de trabajo.
+
+- **Edición en la propia celda.** Doble clic (o Intro sobre la celda activa) y editas: texto, email, teléfono, estado, empresa, responsable, etiquetas y campos personalizados. El valor se pinta antes de que responda el servidor y se revierte si falla.
+- **Cuatro vistas sobre los mismos datos:** tabla, kanban (apilable por estado, empresa, responsable o cualquier campo agrupable, con arrastre entre columnas), calendario mensual y galería de fichas.
+- **Constructor de filtros** con varias condiciones encadenadas, operadores por tipo de campo (contiene, es, está vacío, mayor que, incluye, antes de…) y traducción a consultas de Postgres.
+- **Orden múltiple**: primero por un campo, luego por otro.
+- **Agrupación** por cualquier campo agrupable, con grupos plegables, conteo y suma de valor por grupo.
+- **Gestión de campos**: mostrar, ocultar y reordenar columnas; redimensionar arrastrando; altura de fila corta, media o alta.
+- **Navegación con teclado**: flechas para moverse, Intro para editar, Tab para saltar de columna, barra espaciadora para abrir la ficha, Esc para salir.
+- **Ficha expandida** en panel lateral, con los mismos campos editables y los calculados aparte.
+- **Alta rápida** escribiendo un nombre en la última fila.
+- **Todo el estado vive en la URL**, así que cualquier configuración de vista se comparte con un enlace y se guarda como vista con nombre.
+
+Los campos calculados (valor abierto, número de deals, tareas pendientes, última actividad) salen de la vista `contact_rows` y se marcan con `ƒ` en la cabecera.
+
 ### Menú contextual propio
 
 El clic derecho está capturado en toda la aplicación y ofrece acciones según dónde pulses: filas de contacto (abrir, editar, duplicar, email, crear deal, asignar, cambiar estado, papelera), selección múltiple (estado, responsable, etiquetas, empresa, fusionar, exportar, papelera), tarjetas y columnas del kanban, tareas, empresas, actividades, papelera y la propia barra lateral.

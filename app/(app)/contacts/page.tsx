@@ -1,73 +1,94 @@
 import PageHeader from "@/components/PageHeader";
-import ContactsTable, { type ContactRow } from "@/components/ContactsTable";
+import ContactsWorkspace from "@/components/grid/ContactsWorkspace";
 import NewButton from "@/components/NewButton";
 import { getSession } from "@/lib/workspace";
-import type { SavedView } from "@/lib/types";
+import {
+  contactFields,
+  parseViewConfig,
+  sqlColumn,
+  type Condition,
+  type ViewConfig,
+} from "@/lib/fields";
+import type { CustomField, SavedView } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-type Search = {
-  q?: string;
-  status?: string;
-  company?: string;
-  tag?: string;
-  assigned?: string;
-  sort?: string;
-  dir?: string;
-  page?: string;
-  per?: string;
-};
+/** Aplica una condición del constructor de filtros a la consulta. */
+function applyCondition(query: any, c: Condition) {
+  const col = sqlColumn(c.field);
+  const v = c.value;
 
-/** Columnas reales de la vista `contact_rows` sobre las que se puede ordenar. */
-const SORTABLE: Record<string, string> = {
-  name: "name",
-  company: "company_name",
-  status: "status",
-  value: "open_value",
-  deals: "open_deals",
-  last: "last_activity",
-  created: "created_at",
-};
+  switch (c.op) {
+    case "contains":
+      return query.ilike(col, `%${v}%`);
+    case "notContains":
+      return query.not(col, "ilike", `%${v}%`);
+    case "is":
+      return query.eq(col, v);
+    case "isNot":
+      return query.neq(col, v);
+    case "isEmpty":
+      return c.field === "tags" ? query.eq(col, "{}") : query.or(`${col}.is.null,${col}.eq.`);
+    case "isNotEmpty":
+      return c.field === "tags"
+        ? query.neq(col, "{}")
+        : query.not(col, "is", null).neq(col, "");
+    case "gt":
+      return query.gt(col, v);
+    case "gte":
+      return query.gte(col, v);
+    case "lt":
+      return query.lt(col, v);
+    case "lte":
+      return query.lte(col, v);
+    case "hasAny":
+      return query.overlaps(col, [v]);
+    case "before":
+      return query.lt(col, v);
+    case "after":
+      return query.gt(col, v);
+    default:
+      return query;
+  }
+}
 
-export default async function ContactsPage({ searchParams }: { searchParams: Search }) {
+export default async function ContactsPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | undefined>;
+}) {
   const s = await getSession();
   const { supabase } = s;
+  const cfg: ViewConfig = parseViewConfig(searchParams);
 
-  const q = (searchParams.q ?? "").trim();
-  const status = searchParams.status ?? "all";
-  const company = searchParams.company ?? "all";
-  const tag = searchParams.tag ?? "all";
-  const assigned = searchParams.assigned ?? "all";
-  const sortKey = SORTABLE[searchParams.sort ?? "value"] ?? "open_value";
-  const ascending = searchParams.dir === "asc";
-  const per = Math.min(250, Math.max(10, Number(searchParams.per) || 25));
-  const page = Math.max(0, Number(searchParams.page) || 0);
+  // Agrupar, kanban, calendario y galería necesitan el conjunto entero,
+  // no una página: en esos modos se sube el techo y se quita la paginación.
+  const wholeSet = cfg.view !== "grid" || !!cfg.groupBy;
+  const limit = wholeSet ? 1000 : cfg.per;
 
-  let query = supabase
-    .from("contact_rows")
-    .select("*", { count: "exact" })
-    .is("deleted_at", null);
+  let query = supabase.from("contact_rows").select("*", { count: "exact" }).is("deleted_at", null);
 
-  if (status !== "all") query = query.eq("status", status);
-  if (company === "none") query = query.is("company_id", null);
-  else if (company !== "all") query = query.eq("company_id", company);
-  if (tag !== "all") query = query.contains("tags", [tag]);
-  if (assigned === "none") query = query.is("assigned_to", null);
-  else if (assigned !== "all") query = query.eq("assigned_to", assigned);
-  if (q) {
-    const like = `%${q}%`;
+  for (const c of cfg.filters) query = applyCondition(query, c);
+
+  if (cfg.q) {
+    const like = `%${cfg.q}%`;
     query = query.or(
-      `name.ilike.${like},email.ilike.${like},company_name.ilike.${like},role.ilike.${like}`
+      `name.ilike.${like},email.ilike.${like},company_name.ilike.${like},role.ilike.${like},phone.ilike.${like}`
     );
   }
 
-  const { data, count } = await query
-    .order(sortKey, { ascending, nullsFirst: false })
-    .range(page * per, page * per + per - 1);
+  const sorts = cfg.sorts.length ? cfg.sorts : [{ field: "last_activity", dir: "desc" as const }];
+  for (const srt of sorts) {
+    query = query.order(sqlColumn(srt.field), {
+      ascending: srt.dir === "asc",
+      nullsFirst: false,
+    });
+  }
 
-  // Facetas (conteos por estado + etiquetas distintas) en una sola llamada,
-  // en vez de cuatro conteos y un escaneo de 2.000 filas.
-  const [{ data: facets }, companies, views] = await Promise.all([
+  const from = wholeSet ? 0 : cfg.page * cfg.per;
+  const { data, count } = await query.range(from, from + limit - 1);
+
+  const [{ data: facets }, companiesRes, viewsRes, fieldsRes] = await Promise.all([
     supabase.rpc("contact_facets"),
     supabase.from("companies").select("id, name").is("deleted_at", null).order("name"),
     supabase
@@ -75,37 +96,41 @@ export default async function ContactsPage({ searchParams }: { searchParams: Sea
       .select("*")
       .eq("entity", "contacts")
       .order("created_at", { ascending: true }),
+    supabase
+      .from("custom_fields")
+      .select("*")
+      .eq("entity", "contacts")
+      .order("position", { ascending: true }),
   ]);
 
-  const allTags = ((facets?.tags ?? []) as string[]).filter(Boolean);
-
-  const rows = (data ?? []) as ContactRow[];
-  const total = count ?? 0;
+  const companies = companiesRes.data ?? [];
+  const custom = (fieldsRes.data ?? []) as CustomField[];
+  const fields = contactFields(companies, s.members, custom);
 
   return (
     <>
       <PageHeader
         crumb="CRM"
         title="Contactos"
-        subtitle={`${total} en total · clic derecho para acciones rápidas`}
+        subtitle={`${count ?? 0} registros · edita en la propia celda`}
         action={s.canWrite ? <NewButton href="/contacts/new" label="+ Contacto" /> : null}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
-        <ContactsTable
-          rows={rows}
-          total={total}
-          page={page}
-          per={per}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <ContactsWorkspace
+          rows={(data ?? []) as never[]}
+          total={count ?? 0}
+          config={cfg}
+          fields={fields}
+          companies={companies}
+          members={s.members}
+          tags={((facets?.tags ?? []) as string[]).filter(Boolean)}
           statusCounts={{
             all: facets?.all ?? 0,
             lead: facets?.lead ?? 0,
             prospect: facets?.prospect ?? 0,
             customer: facets?.customer ?? 0,
           }}
-          companies={companies.data ?? []}
-          allTags={allTags}
-          members={s.members}
-          views={(views.data ?? []) as SavedView[]}
+          views={(viewsRes.data ?? []) as SavedView[]}
           canWrite={s.canWrite}
           currentUserId={s.userId}
         />
