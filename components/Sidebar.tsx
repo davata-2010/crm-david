@@ -34,6 +34,8 @@ const NAV: {
   { href: "/deals", label: "Deals", icon: "▤", key: null },
   { href: "/tasks", label: "Tareas", icon: "✓", key: "tasks", alert: true },
   { href: "/activity", label: "Actividad", icon: "≡", key: "activities" },
+  { href: "/automations", label: "Automatiza", icon: "⚡", key: null },
+  { href: "/forms", label: "Formularios", icon: "▭", key: null },
   { href: "/reports", label: "Informes", icon: "◔", key: null },
   { href: "/trash", label: "Papelera", icon: "⌫", key: "trash" },
   { href: "/settings", label: "Ajustes", icon: "⚙", key: null },

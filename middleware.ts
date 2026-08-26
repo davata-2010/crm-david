@@ -8,6 +8,9 @@ const PUBLIC_PATHS = [
   "/invite",
   "/offline",
   "/api/leads",
+  "/api/forms",
+  "/api/cron",
+  "/f/",
   "/manifest.webmanifest",
   "/sw.js",
 ];

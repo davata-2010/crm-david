@@ -7,6 +7,7 @@ import { getSession, WS_COOKIE } from "@/lib/workspace";
 import { STAGES, STAGE_PROBABILITY, type ContactStatus } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import type { MemberRole } from "@/lib/types";
+import { fireTrigger, type TriggerKey } from "@/lib/workflows";
 
 type Result = { error?: string; id?: string; count?: number; ok?: boolean };
 
@@ -39,6 +40,23 @@ async function guard() {
   const s = await getSession();
   if (!s.canWrite) throw new Error("Tu rol es de sólo lectura.");
   return s;
+}
+
+/** Contexto para el motor de automatizaciones. */
+type Guarded = Awaited<ReturnType<typeof guard>>;
+const wf = (s: Guarded) => ({
+  supabase: s.supabase,
+  workspaceId: s.workspace.id,
+  actor: s.userId,
+});
+
+/** Dispara automatizaciones sin bloquear la respuesta si algo falla. */
+async function trigger(
+  s: Guarded,
+  key: TriggerKey,
+  payload: Parameters<typeof fireTrigger>[2]
+) {
+  await fireTrigger(wf(s), key, payload);
 }
 
 /* ============================================================ workspace */
@@ -241,6 +259,14 @@ export async function createContact(formData: FormData): Promise<Result> {
     body: str(formData.get("source")) ? `Fuente: ${str(formData.get("source"))}` : "",
     author: s.profile?.full_name || s.email,
   });
+
+  const { data: fresh } = await s.supabase
+    .from("contacts")
+    .select("*")
+    .eq("id", data.id)
+    .single();
+  if (fresh) await trigger(s, "contact.created", { entity: "contacts", record: fresh });
+
   revalidateAll();
   return { id: data.id };
 }
@@ -351,6 +377,11 @@ export async function bulkSetContactStatus(ids: string[], status: ContactStatus)
   if (!ids.length) return {};
   const { error } = await s.supabase.from("contacts").update({ status }).in("id", ids);
   if (error) return { error: error.message };
+
+  const { data: rows } = await s.supabase.from("contacts").select("*").in("id", ids);
+  for (const record of rows ?? [])
+    await trigger(s, "contact.status_changed", { entity: "contacts", record, status });
+
   revalidateAll();
   return { count: ids.length };
 }
@@ -385,6 +416,15 @@ export async function bulkTagContacts(ids: string[], tag: string, remove = false
       ? current.filter((t) => t !== clean)
       : Array.from(new Set([...current, clean])).slice(0, 12);
     await s.supabase.from("contacts").update({ tags: next }).eq("id", row.id);
+    if (!remove && !current.includes(clean)) {
+      const { data: record } = await s.supabase
+        .from("contacts")
+        .select("*")
+        .eq("id", row.id)
+        .single();
+      if (record)
+        await trigger(s, "contact.tag_added", { entity: "contacts", record, tag: clean });
+    }
   }
   revalidateAll();
   return { count: ids.length };
@@ -492,6 +532,10 @@ export async function createDeal(formData: FormData): Promise<Result> {
     body: `${str(formData.get("name"))} en ${STAGES[stageIndex]}.`,
     author,
   });
+
+  const { data: fresh } = await s.supabase.from("deals").select("*").eq("id", data.id).single();
+  if (fresh) await trigger(s, "deal.created", { entity: "deals", record: fresh });
+
   revalidateAll();
   return { id: data.id };
 }
@@ -549,6 +593,11 @@ export async function moveDealStage(id: string, stage: number, lostReason?: stri
         : `Etapa actualizada desde ${STAGES[before.stage]}. Probabilidad al ${STAGE_PROBABILITY[stage]}%.`,
     author: s.profile?.full_name || s.email,
   });
+
+  const { data: fresh } = await s.supabase.from("deals").select("*").eq("id", id).single();
+  if (fresh)
+    await trigger(s, "deal.stage_changed", { entity: "deals", record: fresh, stage });
+
   revalidateAll();
   return {};
 }
@@ -950,9 +999,10 @@ export async function quickCreateContact(name: string): Promise<Result> {
       name: clean,
       status: "lead",
     })
-    .select("id")
+    .select("*")
     .single();
   if (error) return { error: error.message };
+  await trigger(s, "contact.created", { entity: "contacts", record: data });
   revalidateAll();
   return { id: data.id };
 }
@@ -1048,6 +1098,22 @@ export async function updateRecordField(
 
   const { error } = await s.supabase.from(entity).update({ [key]: next }).eq("id", id);
   if (error) return { error: error.message };
+
+  if (entity === "contacts" && (key === "status" || key === "tags")) {
+    const { data: record } = await s.supabase.from("contacts").select("*").eq("id", id).single();
+    if (record) {
+      if (key === "status")
+        await trigger(s, "contact.status_changed", {
+          entity: "contacts",
+          record,
+          status: String(next),
+        });
+      else
+        for (const tag of (next as string[]) ?? [])
+          await trigger(s, "contact.tag_added", { entity: "contacts", record, tag });
+    }
+  }
+
   revalidateAll();
   return {};
 }
@@ -1075,8 +1141,9 @@ export async function quickCreateRecord(
           owner_initials: initials(s.profile?.full_name || s.email),
         };
 
-  const { data, error } = await s.supabase.from(entity).insert(base).select("id").single();
+  const { data, error } = await s.supabase.from(entity).insert(base).select("*").single();
   if (error) return { error: error.message };
+  if (entity === "deals") await trigger(s, "deal.created", { entity: "deals", record: data });
   revalidateAll();
   return { id: data.id };
 }
