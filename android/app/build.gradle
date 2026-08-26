@@ -1,0 +1,42 @@
+plugins {
+  id 'com.android.application'
+}
+
+android {
+  namespace 'agency.aurum.crm'
+  compileSdk 34
+
+  defaultConfig {
+    applicationId "agency.aurum.crm"
+    minSdk 23
+    targetSdk 34
+    versionCode 1
+    versionName "1.0.0"
+  }
+
+  signingConfigs {
+    release {
+      storeFile file(project.hasProperty('storeFile') ? project.storeFile : 'aurum.keystore')
+      storePassword project.hasProperty('storePassword') ? project.storePassword : ''
+      keyAlias project.hasProperty('keyAlias') ? project.keyAlias : 'aurum'
+      keyPassword project.hasProperty('keyPassword') ? project.keyPassword : ''
+    }
+  }
+
+  buildTypes {
+    release {
+      minifyEnabled false
+      signingConfig signingConfigs.release
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation 'androidx.browser:browser:1.8.0'
+  implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

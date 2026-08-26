@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "agency.aurum.crm",
+      "sha256_cert_fingerprints": [
+        "C3:6E:C8:51:C2:0A:FA:BE:B6:5E:C9:58:A7:E5:24:FB:EC:4A:2D:32:83:E0:2E:76:71:D3:F2:A3:E3:DE:30:7B"
+      ]
+    }
+  }
+]

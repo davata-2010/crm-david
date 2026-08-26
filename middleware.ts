@@ -11,6 +11,7 @@ const PUBLIC_PATHS = [
   "/api/forms",
   "/api/cron",
   "/f/",
+  "/.well-known",
   "/manifest.webmanifest",
   "/sw.js",
 ];
@@ -87,6 +88,6 @@ export const config = {
      * - estáticos de Next y ficheros del PWA (nunca necesitan sesión)
      * - imágenes y fuentes
      */
-    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|manifest.webmanifest|offline|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|manifest.webmanifest|offline|\.well-known|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
   ],
 };

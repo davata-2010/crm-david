@@ -171,3 +171,22 @@ console.log(`desktop/build/icon.ico`.padEnd(36) + `${icoSizes.join("/")}  ${(ico
 
 writeFileSync("desktop/build/icon.png", render(512, { maskable: false }));
 console.log("desktop/build/icon.png".padEnd(36) + "512×512");
+
+/* ------------------------------------------------ iconos de Android ---- */
+// Un mipmap por densidad. El adaptativo usa la variante que llena el lienzo.
+
+const DENSITIES = [
+  ["mdpi", 48],
+  ["hdpi", 72],
+  ["xhdpi", 96],
+  ["xxhdpi", 144],
+  ["xxxhdpi", 192],
+];
+
+for (const [density, size] of DENSITIES) {
+  const dir = `android/app/src/main/res/mipmap-${density}`;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(`${dir}/ic_launcher.png`, render(size, { maskable: false }));
+  writeFileSync(`${dir}/ic_launcher_foreground.png`, render(size * 2, { maskable: true }));
+}
+console.log("android/app/src/main/res/mipmap-*  ".padEnd(36) + DENSITIES.map(([d]) => d).join(", "));

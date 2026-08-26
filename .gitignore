@@ -7,3 +7,10 @@ tsconfig.tsbuildinfo
 deno.lock
 desktop/node_modules
 desktop/dist
+
+android/local.properties
+android/aurum.keystore
+android/.gradle
+android/build
+android/app/build
+android/keystore.properties
