@@ -91,6 +91,31 @@ Los campos calculados se marcan con `ƒ` en la cabecera y salen de vistas de Pos
 
 El pipeline kanban especializado sigue en `/pipeline` con sus etapas, forecast ponderado y motivo de pérdida; `/deals` es la misma información en cuadrícula. Se salta de uno a otro desde la cabecera.
 
+### Automatizaciones
+
+`/automations` — el «cuando pase esto, haz esto otro» de GoHighLevel.
+
+**Disparadores:** se crea un contacto · se le añade una etiqueta concreta · cambia de estado · se crea un deal · un deal llega a una etapa · se envía un formulario.
+
+**Condiciones** opcionales con el mismo constructor que los filtros de la cuadrícula.
+
+**Acciones encadenables:** esperar (días, horas o minutos) · añadir o quitar etiqueta · cambiar estado · mover de etapa · asignar responsable · crear tarea con vencimiento · añadir nota · crear deal · llamar a un webhook.
+
+En cualquier texto se puede usar `{{name}}`, `{{email}}` o cualquier campo del registro; se sustituye al ejecutarse.
+
+El motor vive en TypeScript y se dispara desde las propias acciones del CRM. Postgres guarda la definición, el historial paso a paso de cada ejecución y las esperas pendientes. Un trabajo de `pg_cron` llama cada minuto a `/api/cron/workflows` (protegido por `CRON_SECRET`) para reanudar lo que ya venció.
+
+Si una automatización falla, la ejecución queda marcada con el error y **no rompe la acción del usuario que la disparó**.
+
+### Formularios de captación
+
+`/forms` — constructor de formularios con página pública propia.
+
+- Campos configurables: nombre, email, teléfono, empresa, mensaje y campos personalizados; cada uno con su etiqueta, tipo y obligatoriedad.
+- Página pública en `/f/<slug>` y snippet `<iframe>` para incrustar en cualquier web.
+- Cada envío crea el contacto —**sin duplicar si el email ya existe**, en ese caso añade otra actividad—, crea la empresa si hace falta, aplica las etiquetas del formulario, lo registra en el timeline y dispara las automatizaciones.
+- Vista previa en vivo mientras editas.
+
 ### Menú contextual propio
 
 El clic derecho está capturado en toda la aplicación y ofrece acciones según dónde pulses: filas de contacto (abrir, editar, duplicar, email, crear deal, asignar, cambiar estado, papelera), selección múltiple (estado, responsable, etiquetas, empresa, fusionar, exportar, papelera), tarjetas y columnas del kanban, tareas, empresas, actividades, papelera y la propia barra lateral.
