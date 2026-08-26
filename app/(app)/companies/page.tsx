@@ -1,47 +1,54 @@
-import { createClient } from "@/lib/supabase/server";
 import PageHeader from "@/components/PageHeader";
-import CompaniesList, { type CompanyRow } from "@/components/CompaniesList";
+import EntityWorkspace from "@/components/grid/EntityWorkspace";
 import NewButton from "@/components/NewButton";
-import type { Company, Contact, Deal } from "@/lib/types";
+import { getSession } from "@/lib/workspace";
+import { queryEntity } from "@/lib/entity-query";
+import { companyFields, parseViewConfig } from "@/lib/fields";
+import type { SavedView } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function CompaniesPage() {
-  const supabase = createClient();
-  const [{ data: companiesData }, { data: contactsData }, { data: dealsData }] =
-    await Promise.all([
-      supabase.from("companies").select("*").is("deleted_at", null).order("name"),
-      supabase.from("contacts").select("id, name, company_id").is("deleted_at", null),
-      supabase.from("deals").select("id, company_id, value, stage").is("deleted_at", null),
-    ]);
+export default async function CompaniesPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | undefined>;
+}) {
+  const s = await getSession();
+  const cfg = parseViewConfig(searchParams);
 
-  const companies = (companiesData ?? []) as Company[];
-  const contacts = (contactsData ?? []) as Contact[];
-  const deals = (dealsData ?? []) as Deal[];
-
-  const rows: CompanyRow[] = companies.map((c) => {
-    const cContacts = contacts.filter((x) => x.company_id === c.id);
-    const cDeals = deals.filter((d) => d.company_id === c.id);
-    return {
-      company: c,
-      contacts: cContacts.map((x) => ({ id: x.id, name: x.name })),
-      openValue: cDeals.filter((d) => d.stage < 5).reduce((a, d) => a + Number(d.value), 0),
-      wonValue: cDeals.filter((d) => d.stage === 5).reduce((a, d) => a + Number(d.value), 0),
-      openDeals: cDeals.filter((d) => d.stage < 5).length,
-      totalDeals: cDeals.length,
-    };
+  const { rows, total } = await queryEntity(s.supabase, "companies", cfg, {
+    field: "open_value",
+    dir: "desc",
   });
+
+  const viewsRes = await s.supabase
+    .from("saved_views")
+    .select("*")
+    .eq("entity", "companies")
+    .order("created_at");
 
   return (
     <>
       <PageHeader
         crumb="CRM"
         title="Empresas"
-        subtitle={`${companies.length} cuentas · clic derecho para acciones`}
-        action={<NewButton href="/companies/new" label="+ Empresa" />}
+        subtitle={`${total} cuentas · edita en la propia celda`}
+        action={s.canWrite ? <NewButton href="/companies/new" label="+ Empresa" /> : null}
       />
-      <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
-        <CompaniesList rows={rows} />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <EntityWorkspace
+          entity="companies"
+          rows={rows}
+          total={total}
+          config={cfg}
+          fields={companyFields()}
+          companies={[]}
+          members={s.members}
+          tags={[]}
+          views={(viewsRes.data ?? []) as SavedView[]}
+          canWrite={s.canWrite}
+          currentUserId={s.userId}
+        />
       </div>
     </>
   );

@@ -66,9 +66,9 @@ Barra lateral deslizante, rejillas que colapsan y tablas con scroll horizontal. 
 | Papelera | `/trash` | Restaurar o borrar definitivamente |
 | Ajustes | `/settings` | Perfil, equipo, pipeline, campos personalizados, API, historial de cambios y datos |
 
-### Contactos: cuadrícula al estilo Airtable
+### Cuadrícula al estilo Airtable en contactos, empresas y deals
 
-`/contacts` dejó de ser una tabla de solo lectura y pasó a ser una hoja de trabajo.
+Las tres entidades principales comparten el mismo motor de vistas: `/contacts`, `/companies` y `/deals` son hojas de trabajo, no tablas de solo lectura.
 
 - **Edición en la propia celda.** Doble clic (o Intro sobre la celda activa) y editas: texto, email, teléfono, estado, empresa, responsable, etiquetas y campos personalizados. El valor se pinta antes de que responda el servidor y se revierte si falla.
 - **Cuatro vistas sobre los mismos datos:** tabla, kanban (apilable por estado, empresa, responsable o cualquier campo agrupable, con arrastre entre columnas), calendario mensual y galería de fichas.
@@ -81,7 +81,15 @@ Barra lateral deslizante, rejillas que colapsan y tablas con scroll horizontal. 
 - **Alta rápida** escribiendo un nombre en la última fila.
 - **Todo el estado vive en la URL**, así que cualquier configuración de vista se comparte con un enlace y se guarda como vista con nombre.
 
-Los campos calculados (valor abierto, número de deals, tareas pendientes, última actividad) salen de la vista `contact_rows` y se marcan con `ƒ` en la cabecera.
+Los campos calculados se marcan con `ƒ` en la cabecera y salen de vistas de Postgres con agregados:
+
+| Vista | Calcula |
+|---|---|
+| `contact_rows` | valor abierto, deals abiertos, tareas pendientes, última actividad |
+| `company_rows` | contactos, deals, valor en pipeline, valor ganado, última actividad |
+| `deal_rows` | ponderado por probabilidad de etapa, probabilidad, días abierto, días al cierre, nº de actividades |
+
+El pipeline kanban especializado sigue en `/pipeline` con sus etapas, forecast ponderado y motivo de pérdida; `/deals` es la misma información en cuadrícula. Se salta de uno a otro desde la cabecera.
 
 ### Menú contextual propio
 

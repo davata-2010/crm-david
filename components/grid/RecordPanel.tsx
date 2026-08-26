@@ -22,6 +22,7 @@ export default function RecordPanel({
   members,
   onEdit,
   onClose,
+  detailPath = "/contacts",
 }: {
   row: Row;
   fields: FieldDef[];
@@ -30,6 +31,7 @@ export default function RecordPanel({
   members: Membership[];
   onEdit: (id: string, key: string, value: string | string[] | null) => void;
   onClose: () => void;
+  detailPath?: string;
 }) {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -69,7 +71,7 @@ export default function RecordPanel({
             </div>
           </div>
           <Link
-            href={`/contacts/${row.id}`}
+            href={`${detailPath}/${row.id}`}
             className="rounded-[8px] border border-[rgba(245,245,245,0.12)] px-3 py-1.5 text-[12px] text-ink-150 transition-colors hover:border-gold hover:text-gold"
           >
             Ficha completa

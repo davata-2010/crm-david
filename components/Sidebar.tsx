@@ -31,6 +31,7 @@ const NAV: {
   { href: "/contacts", label: "Contactos", icon: "◍", key: "contacts" },
   { href: "/companies", label: "Empresas", icon: "▤", key: "companies" },
   { href: "/pipeline", label: "Pipeline", icon: "▦", key: "deals" },
+  { href: "/deals", label: "Deals", icon: "▤", key: null },
   { href: "/tasks", label: "Tareas", icon: "✓", key: "tasks", alert: true },
   { href: "/activity", label: "Actividad", icon: "≡", key: "activities" },
   { href: "/reports", label: "Informes", icon: "◔", key: null },

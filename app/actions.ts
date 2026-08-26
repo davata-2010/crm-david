@@ -967,3 +967,116 @@ export async function updateSavedView(
   revalidateAll();
   return {};
 }
+
+/* ============================== edición en celda: empresas y deals ==== */
+
+const WRITABLE: Record<string, Set<string>> = {
+  contacts: new Set([
+    "name", "email", "phone", "role", "status", "source", "timezone",
+    "company_id", "assigned_to", "tags",
+  ]),
+  companies: new Set(["name", "industry", "website", "country", "size", "notes"]),
+  deals: new Set([
+    "name", "value", "stage", "project_type", "close_date", "notes",
+    "company_id", "contact_id", "assigned_to", "tags", "lost_reason",
+  ]),
+};
+
+const NUMERIC = new Set(["value"]);
+const INTEGER = new Set(["stage"]);
+
+/**
+ * Edición de una celda en cualquiera de las tres cuadrículas.
+ * Mover un deal de etapa desde aquí registra la actividad, igual que el kanban.
+ */
+export async function updateRecordField(
+  entity: "contacts" | "companies" | "deals",
+  id: string,
+  key: string,
+  value: string | string[] | null
+): Promise<Result> {
+  const s = await guard();
+  const allow = WRITABLE[entity];
+  if (!allow) return { error: "Entidad no válida." };
+
+  if (key.startsWith("custom.")) {
+    if (entity === "companies") return { error: "Las empresas no tienen campos personalizados." };
+    const field = key.slice(7);
+    const { data: row, error: readErr } = await s.supabase
+      .from(entity)
+      .select("custom")
+      .eq("id", id)
+      .single();
+    if (readErr) return { error: readErr.message };
+    const custom = { ...((row.custom ?? {}) as Record<string, unknown>) };
+    if (value === null || value === "") delete custom[field];
+    else custom[field] = value;
+    const { error } = await s.supabase.from(entity).update({ custom }).eq("id", id);
+    if (error) return { error: error.message };
+    revalidateAll();
+    return {};
+  }
+
+  if (!allow.has(key)) return { error: `El campo "${key}" no es editable.` };
+
+  // Cambiar de etapa pasa por moveDealStage para que quede en el timeline.
+  if (entity === "deals" && key === "stage") {
+    const stage = Number(value);
+    if (!Number.isInteger(stage) || stage < 0 || stage > 6) return { error: "Etapa no válida." };
+    return moveDealStage(id, stage);
+  }
+
+  let next: unknown = value;
+  if (key === "tags") {
+    next = Array.isArray(value)
+      ? value
+      : String(value ?? "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 12);
+  } else if (key === "company_id" || key === "contact_id" || key === "assigned_to") {
+    next = value ? String(value) : null;
+  } else if (key === "close_date") {
+    next = value ? String(value) : null;
+  } else if (NUMERIC.has(key)) {
+    next = Number(String(value ?? "").replace(/[^\d.-]/g, "")) || 0;
+  } else if (INTEGER.has(key)) {
+    next = parseInt(String(value ?? "0"), 10) || 0;
+  } else if (key === "status") {
+    if (!["lead", "prospect", "customer"].includes(String(value)))
+      return { error: "Estado no válido." };
+  } else {
+    next = String(value ?? "");
+  }
+
+  const { error } = await s.supabase.from(entity).update({ [key]: next }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidateAll();
+  return {};
+}
+
+/** Alta rápida desde la última fila, para empresas y deals. */
+export async function quickCreateRecord(
+  entity: "companies" | "deals",
+  name: string
+): Promise<Result> {
+  const s = await guard();
+  const clean = name.trim();
+  if (!clean) return { error: "Escribe un nombre." };
+
+  const base: Record<string, unknown> =
+    entity === "companies"
+      ? { workspace_id: s.workspace.id, owner_id: s.userId, name: clean }
+      : {
+          workspace_id: s.workspace.id,
+          owner_id: s.userId,
+          assigned_to: s.userId,
+          name: clean,
+          value: 0,
+          stage: 0,
+          project_type: "Agentes",
+          owner_initials: initials(s.profile?.full_name || s.email),
+        };
+
+  const { data, error } = await s.supabase.from(entity).insert(base).select("id").single();
+  if (error) return { error: error.message };
+  revalidateAll();
+  return { id: data.id };
+}

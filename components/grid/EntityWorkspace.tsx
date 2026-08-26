@@ -10,25 +10,34 @@ import RecordPanel from "./RecordPanel";
 import type { Row } from "./Cell";
 import {
   bulkAssignContacts,
+  bulkAssignDeals,
   bulkSetContactStatus,
   bulkTagContacts,
-  deleteContact,
   duplicateContact,
+  duplicateDeal,
   importContacts,
   mergeContacts,
   quickCreateContact,
+  quickCreateRecord,
   saveView,
   softDelete,
   deleteView,
-  updateContactField,
+  updateRecordField,
 } from "@/app/actions";
-import { CONTACT_STATUSES, GOLD, STATUS } from "@/lib/constants";
+import { CONTACT_STATUSES, GOLD, LOST_REASONS, STAGES, STATUS } from "@/lib/constants";
 import { downloadCsv, mapContactRow, parseCsv, toCsv } from "@/lib/csv";
 import { memberName } from "@/lib/workspace-client";
-import { DEFAULT_FIELDS, type FieldDef, type ViewConfig } from "@/lib/fields";
+import { ENTITY_SOURCE, type EntityKey, type FieldDef, type ViewConfig } from "@/lib/fields";
 import type { Company, Membership, SavedView } from "@/lib/types";
 
-export default function ContactsWorkspace({
+const LABEL: Record<EntityKey, { one: string; many: string; create: string }> = {
+  contacts: { one: "contacto", many: "contactos", create: "Escribe un nombre y pulsa Intro para crear un contacto…" },
+  companies: { one: "empresa", many: "empresas", create: "Escribe un nombre y pulsa Intro para crear una empresa…" },
+  deals: { one: "deal", many: "deals", create: "Escribe un nombre y pulsa Intro para crear un deal…" },
+};
+
+export default function EntityWorkspace({
+  entity,
   rows,
   total,
   config,
@@ -36,11 +45,11 @@ export default function ContactsWorkspace({
   companies,
   members,
   tags,
-  statusCounts,
   views,
   canWrite,
   currentUserId,
 }: {
+  entity: EntityKey;
   rows: Row[];
   total: number;
   config: ViewConfig;
@@ -48,7 +57,6 @@ export default function ContactsWorkspace({
   companies: Pick<Company, "id" | "name">[];
   members: Membership[];
   tags: string[];
-  statusCounts: Record<string, number>;
   views: SavedView[];
   canWrite: boolean;
   currentUserId: string;
@@ -65,6 +73,9 @@ export default function ContactsWorkspace({
   const [openRow, setOpenRow] = useState<Row | null>(null);
   const [optimistic, setOptimistic] = useState<Record<string, Record<string, unknown>>>({});
 
+  const words = LABEL[entity];
+  const detailPath = entity === "deals" ? "/deals" : entity === "companies" ? "/companies" : "/contacts";
+
   /* ------------------------------------------------------------ URL --- */
 
   function patch(next: Record<string, string | null>) {
@@ -74,13 +85,12 @@ export default function ContactsWorkspace({
     router.push(s ? `${pathname}?${s}` : pathname, { scroll: false });
   }
 
-  const visibleKeys = config.fields.length ? config.fields : DEFAULT_FIELDS;
+  const visibleKeys = config.fields.length ? config.fields : [...ENTITY_SOURCE[entity].defaults];
   const visibleFields = visibleKeys
     .map((k) => fields.find((f) => f.key === k))
     .filter(Boolean) as FieldDef[];
 
-  const setFields = (keys: string[]) =>
-    patch({ cols: encodeURIComponent(JSON.stringify(keys)) });
+  const setFields = (keys: string[]) => patch({ cols: encodeURIComponent(JSON.stringify(keys)) });
 
   const setWidth = (key: string, width: number) => {
     const widths = { ...config.widths, [key]: width };
@@ -91,7 +101,6 @@ export default function ContactsWorkspace({
 
   /* -------------------------------------------------------- edición --- */
 
-  // Las filas se pintan con el valor nuevo antes de que responda el servidor.
   const shown = useMemo(
     () => rows.map((r) => (optimistic[r.id] ? { ...r, ...optimistic[r.id] } : r)),
     [rows, optimistic]
@@ -102,6 +111,8 @@ export default function ContactsWorkspace({
     if (key === "company_id") {
       display.company_name = companies.find((c) => c.id === value)?.name ?? null;
       display.company_id = value;
+    } else if (key === "contact_id") {
+      display.contact_id = value;
     } else if (key.startsWith("custom.")) {
       const row = rows.find((r) => r.id === id);
       display.custom = {
@@ -109,12 +120,12 @@ export default function ContactsWorkspace({
         [key.slice(7)]: value,
       };
     } else {
-      display[key] = value;
+      display[key] = key === "stage" || key === "value" ? Number(value) : value;
     }
     setOptimistic((p) => ({ ...p, [id]: { ...(p[id] ?? {}), ...display } }));
 
     start(async () => {
-      const res = await updateContactField(id, key, value);
+      const res = await updateRecordField(entity, id, key, value);
       if (res?.error) {
         setOptimistic((p) => {
           const n = { ...p };
@@ -165,22 +176,26 @@ export default function ContactsWorkspace({
     downloadCsv(
       filename,
       toCsv(
-        list.map((r) => ({
-          nombre: r.name,
-          email: r.email ?? "",
-          telefono: r.phone ?? "",
-          cargo: r.role ?? "",
-          empresa: r.company_name ?? "",
-          estado: r.status,
-          etiquetas: ((r.tags as string[]) ?? []).join("; "),
-          responsable: memberName(members, (r.assigned_to as string) ?? null),
-          valor_abierto: r.open_value,
-          deals_abiertos: r.open_deals,
-          ultima_actividad: r.last_activity,
-        }))
+        list.map((r) => {
+          const out: Record<string, unknown> = {};
+          visibleFields.forEach((f) => {
+            const v = f.key.startsWith("custom.")
+              ? ((r.custom ?? {}) as Record<string, unknown>)[f.key.slice(7)]
+              : r[f.key];
+            out[f.label] =
+              f.key === "assigned_to"
+                ? memberName(members, (v as string) ?? null)
+                : f.key === "stage"
+                  ? STAGES[Number(v)]
+                  : Array.isArray(v)
+                    ? v.join("; ")
+                    : (v ?? "");
+          });
+          return out;
+        })
       )
     );
-    toast(`${list.length} contactos exportados.`);
+    toast(`${list.length} ${words.many} exportados.`);
   }
 
   async function onImportFile(file: File) {
@@ -188,7 +203,7 @@ export default function ContactsWorkspace({
     if (!parsed.length) return toast("No encontré ninguna columna de nombre.", "error");
     const ok = await confirm({
       title: `Importar ${parsed.length} contactos`,
-      message: "Se crearán las empresas que no existan. Después puedes buscar duplicados.",
+      message: "Se crearán las empresas que no existan.",
       confirmLabel: "Importar",
     });
     if (ok) run(() => importContacts(parsed), `${parsed.length} contactos importados.`);
@@ -196,35 +211,32 @@ export default function ContactsWorkspace({
 
   /* --------------------------------------------------------- menús --- */
 
-  function rowMenu(e: React.MouseEvent, row: Row) {
-    const multi = selected.size > 1 && selected.has(row.id);
-    const base: MenuItem[] = [
-      { kind: "label", label: multi ? `${selected.size} seleccionados` : String(row.name) },
-      { label: "Abrir ficha", icon: "⤢", onSelect: () => setOpenRow(row) },
-      {
-        label: "Abrir en pestaña nueva",
-        icon: "⧉",
-        onSelect: () => window.open(`/contacts/${row.id}`, "_blank"),
-      },
+  function bulkItems(): MenuItem[] {
+    const common: MenuItem[] = [
+      { kind: "label", label: "Asignar a" },
+      ...members.map((m) => ({
+        label: m.profile?.full_name || m.profile?.email || "Miembro",
+        icon: "◍",
+        onSelect: () =>
+          run(
+            () =>
+              entity === "deals"
+                ? bulkAssignDeals(ids, m.user_id)
+                : bulkAssignContacts(ids, m.user_id),
+            "Asignados."
+          ),
+      })),
     ];
 
-    if (!canWrite) return openMenu(e, base);
-
-    if (multi) {
-      return openMenu(e, [
-        { kind: "label", label: `${selected.size} contactos` },
+    if (entity === "contacts")
+      return [
         ...CONTACT_STATUSES.map((s) => ({
           label: `Marcar como ${STATUS[s].label}`,
           icon: "◦",
           onSelect: () => run(() => bulkSetContactStatus(ids, s), "Estado actualizado."),
         })),
         { kind: "separator" },
-        { kind: "label", label: "Asignar a" },
-        ...members.map((m) => ({
-          label: m.profile?.full_name || m.profile?.email || "Miembro",
-          icon: "◍",
-          onSelect: () => run(() => bulkAssignContacts(ids, m.user_id), "Asignados."),
-        })),
+        ...common,
         { kind: "separator" },
         {
           label: "Añadir etiqueta…",
@@ -252,63 +264,162 @@ export default function ContactsWorkspace({
               );
           },
         },
-        { label: "Exportar selección", icon: "↓", onSelect: () => exportRows(selectedRows, "seleccion.csv") },
+      ];
+
+    if (entity === "deals")
+      return [
+        { kind: "label", label: "Mover a etapa" },
+        ...STAGES.map((label, i) => ({
+          label,
+          icon: "○",
+          onSelect: () =>
+            run(async () => {
+              for (const id of ids) await updateRecordField("deals", id, "stage", String(i));
+            }, `Movidos a ${label}.`),
+        })),
         { kind: "separator" },
+        ...common,
+      ];
+
+    return common;
+  }
+
+  function rowMenu(e: React.MouseEvent, row: Row) {
+    const multi = selected.size > 1 && selected.has(row.id);
+    const title = String(row.name ?? "");
+
+    const base: MenuItem[] = [
+      { kind: "label", label: multi ? `${selected.size} seleccionados` : title },
+      { label: "Abrir ficha", icon: "⤢", onSelect: () => setOpenRow(row) },
+      {
+        label: "Abrir en pestaña nueva",
+        icon: "⧉",
+        onSelect: () => window.open(`${detailPath}/${row.id}`, "_blank"),
+      },
+    ];
+
+    if (!canWrite) return openMenu(e, base);
+
+    if (multi)
+      return openMenu(e, [
+        { kind: "label", label: `${selected.size} ${words.many}` },
+        ...bulkItems(),
+        { kind: "separator" },
+        { label: "Exportar selección", icon: "↓", onSelect: () => exportRows(selectedRows, `${entity}-seleccion.csv`) },
         {
           label: `Mover ${selected.size} a la papelera`,
           icon: "⌫",
           danger: true,
           onSelect: async () => {
             const ok = await confirm({
-              title: `Mover ${selected.size} contactos a la papelera`,
+              title: `Mover ${selected.size} ${words.many} a la papelera`,
               message: "Podrás restaurarlos desde Papelera.",
               confirmLabel: "Mover",
               danger: true,
             });
-            if (ok) run(() => softDelete("contacts", ids), `${ids.length} en la papelera.`);
+            if (ok) run(() => softDelete(entity, ids), `${ids.length} en la papelera.`);
           },
         },
       ]);
+
+    const specific: MenuItem[] = [];
+
+    if (entity === "contacts") {
+      specific.push(
+        {
+          label: "Enviar email",
+          icon: "✉",
+          disabled: !row.email,
+          onSelect: () => (window.location.href = `mailto:${row.email}`),
+        },
+        { label: "Crear deal", icon: "＋", onSelect: () => router.push(`/deals/new?contact=${row.id}`) },
+        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/contacts/${row.id}?task=1`) },
+        { kind: "separator" },
+        { kind: "label", label: "Cambiar estado" },
+        ...CONTACT_STATUSES.map((s) => ({
+          label: STATUS[s].label,
+          icon: row.status === s ? "●" : "○",
+          disabled: row.status === s,
+          onSelect: () => edit(row.id, "status", s),
+        }))
+      );
+    }
+
+    if (entity === "deals") {
+      specific.push(
+        {
+          label: "Abrir contacto",
+          icon: "◍",
+          disabled: !row.contact_id,
+          onSelect: () => router.push(`/contacts/${row.contact_id}`),
+        },
+        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/deals/${row.id}?task=1`) },
+        { kind: "separator" },
+        { kind: "label", label: "Mover a etapa" },
+        ...STAGES.map((label, i) => ({
+          label,
+          icon: Number(row.stage) === i ? "●" : "○",
+          disabled: Number(row.stage) === i,
+          onSelect: () => edit(row.id, "stage", String(i)),
+        })),
+        {
+          label: "Marcar perdido con motivo…",
+          icon: "✕",
+          onSelect: () =>
+            openMenu(e, [
+              { kind: "label", label: "Motivo de la pérdida" },
+              ...LOST_REASONS.map((reason) => ({
+                label: reason,
+                icon: "○",
+                onSelect: () =>
+                  start(async () => {
+                    await updateRecordField("deals", row.id, "stage", "6");
+                    await updateRecordField("deals", row.id, "lost_reason", reason);
+                    toast("Marcado como perdido.");
+                    router.refresh();
+                  }),
+              })),
+            ]),
+        }
+      );
+    }
+
+    if (entity === "companies") {
+      specific.push(
+        {
+          label: "Abrir web",
+          icon: "🌐",
+          disabled: !row.website,
+          onSelect: () => {
+            const url = String(row.website).startsWith("http")
+              ? String(row.website)
+              : `https://${row.website}`;
+            window.open(url, "_blank");
+          },
+        },
+        { label: "Nuevo contacto aquí", icon: "＋", onSelect: () => router.push(`/contacts/new?company=${row.id}`) },
+        { label: "Nuevo deal aquí", icon: "＋", onSelect: () => router.push(`/deals/new?company=${row.id}`) }
+      );
     }
 
     openMenu(e, [
       ...base,
-      { label: "Editar ficha completa", icon: "✎", onSelect: () => router.push(`/contacts/${row.id}?edit=1`) },
-      {
-        label: "Duplicar",
-        icon: "⧉",
-        onSelect: () => run(() => duplicateContact(row.id), "Contacto duplicado."),
-      },
+      { label: "Editar ficha completa", icon: "✎", onSelect: () => router.push(`${detailPath}/${row.id}?edit=1`) },
+      ...(entity !== "companies"
+        ? [
+            {
+              label: "Duplicar",
+              icon: "⧉",
+              onSelect: () =>
+                run(
+                  () => (entity === "deals" ? duplicateDeal(row.id) : duplicateContact(row.id)),
+                  "Duplicado."
+                ),
+            } as MenuItem,
+          ]
+        : []),
       { kind: "separator" },
-      {
-        label: "Enviar email",
-        icon: "✉",
-        disabled: !row.email,
-        onSelect: () => (window.location.href = `mailto:${row.email}`),
-      },
-      {
-        label: "Copiar email",
-        icon: "⧉",
-        disabled: !row.email,
-        onSelect: () => {
-          navigator.clipboard.writeText(String(row.email));
-          toast("Email copiado.");
-        },
-      },
-      {
-        label: "Crear deal",
-        icon: "＋",
-        onSelect: () => router.push(`/deals/new?contact=${row.id}`),
-      },
-      { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/contacts/${row.id}?task=1`) },
-      { kind: "separator" },
-      { kind: "label", label: "Cambiar estado" },
-      ...CONTACT_STATUSES.map((s) => ({
-        label: STATUS[s].label,
-        icon: row.status === s ? "●" : "○",
-        disabled: row.status === s,
-        onSelect: () => edit(row.id, "status", s),
-      })),
+      ...specific,
       { kind: "separator" },
       {
         label: "Mover a la papelera",
@@ -316,11 +427,11 @@ export default function ContactsWorkspace({
         danger: true,
         onSelect: async () => {
           const ok = await confirm({
-            title: `Mover a ${row.name} a la papelera`,
+            title: `Mover "${title}" a la papelera`,
             confirmLabel: "Mover",
             danger: true,
           });
-          if (ok) run(() => deleteContact(row.id), "Movido a la papelera.");
+          if (ok) run(() => softDelete(entity, [row.id]), "Movido a la papelera.");
         },
       },
     ]);
@@ -332,23 +443,17 @@ export default function ContactsWorkspace({
       {
         label: "Ordenar ascendente",
         icon: "▲",
-        onSelect: () =>
-          patch({ s: encodeURIComponent(JSON.stringify([{ field: field.key, dir: "asc" }])) }),
+        onSelect: () => patch({ s: encodeURIComponent(JSON.stringify([{ field: field.key, dir: "asc" }])) }),
       },
       {
         label: "Ordenar descendente",
         icon: "▼",
-        onSelect: () =>
-          patch({ s: encodeURIComponent(JSON.stringify([{ field: field.key, dir: "desc" }])) }),
+        onSelect: () => patch({ s: encodeURIComponent(JSON.stringify([{ field: field.key, dir: "desc" }])) }),
       },
       ...(field.groupable
         ? [
             { kind: "separator" as const },
-            {
-              label: `Agrupar por ${field.label}`,
-              icon: "⊞",
-              onSelect: () => patch({ group: field.key }),
-            },
+            { label: `Agrupar por ${field.label}`, icon: "⊞", onSelect: () => patch({ group: field.key }) },
           ]
         : []),
       {
@@ -365,29 +470,22 @@ export default function ContactsWorkspace({
           }),
       },
       { kind: "separator" },
-      {
-        label: "Ocultar campo",
-        icon: "◌",
-        onSelect: () => setFields(visibleKeys.filter((k) => k !== field.key)),
-      },
-      {
-        label: "Ajustar ancho por defecto",
-        icon: "↔",
-        onSelect: () => {
-          const widths = { ...config.widths };
-          delete widths[field.key];
-          patch({ w: Object.keys(widths).length ? encodeURIComponent(JSON.stringify(widths)) : null });
-        },
-      },
+      { label: "Ocultar campo", icon: "◌", onSelect: () => setFields(visibleKeys.filter((k) => k !== field.key)) },
     ]);
   }
 
   const bgMenu: MenuItem[] = [
-    { kind: "label", label: "Vista de contactos" },
+    { kind: "label", label: `Vista de ${words.many}` },
     ...(canWrite
       ? ([
-          { label: "Nuevo contacto", icon: "＋", onSelect: () => router.push("/contacts/new") },
-          { label: "Importar CSV", icon: "↑", onSelect: () => fileRef.current?.click() },
+          {
+            label: `Nuevo ${words.one}`,
+            icon: "＋",
+            onSelect: () => router.push(entity === "contacts" ? "/contacts/new" : `${detailPath}/new`),
+          },
+          ...(entity === "contacts"
+            ? [{ label: "Importar CSV", icon: "↑", onSelect: () => fileRef.current?.click() } as MenuItem]
+            : []),
           {
             label: "Guardar esta vista…",
             icon: "★",
@@ -396,13 +494,13 @@ export default function ContactsWorkspace({
               if (!name?.trim()) return;
               const cfg: Record<string, string> = {};
               params.forEach((v, k) => (cfg[k] = v));
-              run(() => saveView("contacts", name, cfg, true), "Vista guardada.");
+              run(() => saveView(entity, name, cfg, true), "Vista guardada.");
             },
           },
         ] as MenuItem[])
       : []),
     { kind: "separator" },
-    { label: "Exportar lo que se ve", icon: "↓", onSelect: () => exportRows(shown, "contactos.csv") },
+    { label: "Exportar lo que se ve", icon: "↓", onSelect: () => exportRows(shown, `${entity}.csv`) },
     {
       label: "Seleccionar todo lo visible",
       icon: "☑",
@@ -415,10 +513,10 @@ export default function ContactsWorkspace({
 
   const kanbanField =
     fields.find((f) => f.key === config.kanbanBy && f.groupable) ??
-    fields.find((f) => f.key === "status")!;
+    fields.find((f) => f.groupable)!;
   const calendarField =
     fields.find((f) => f.key === config.calendarBy) ??
-    fields.find((f) => f.type === "datetime")!;
+    fields.find((f) => f.type === "date" || f.type === "datetime")!;
 
   const pageCount = Math.max(1, Math.ceil(total / config.per));
 
@@ -436,7 +534,6 @@ export default function ContactsWorkspace({
         }}
       />
 
-      {/* vistas guardadas */}
       {views.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-hair px-4 py-2 lg:px-6">
           <span className="text-[10px] uppercase tracking-[0.1em] text-ink-450">Vistas</span>
@@ -474,30 +571,17 @@ export default function ContactsWorkspace({
         onSetFields={setFields}
         rowCount={shown.length}
         total={total}
-        extra={
-          <div className="flex items-center gap-1.5">
-            {(["all", "lead", "prospect", "customer"] as const).map((k) => (
-              <span key={k} className="hidden text-[11px] text-ink-500 2xl:inline">
-                {k === "all" ? "" : `${STATUS[k].label} ${statusCounts[k]}`}
-              </span>
-            ))}
-          </div>
-        }
       />
 
-      {/* barra de selección */}
       {selected.size > 0 && canWrite && (
         <div className="flex flex-wrap items-center gap-2 border-b border-[rgba(250,197,28,0.25)] bg-[rgba(250,197,28,0.06)] px-4 py-2 lg:px-6">
           <span className="text-[12px] font-semibold text-gold">{selected.size} seleccionados</span>
-          {CONTACT_STATUSES.map((s) => (
-            <button
-              key={s}
-              onClick={() => run(() => bulkSetContactStatus(ids, s), "Estado actualizado.")}
-              className="rounded-full border border-[rgba(245,245,245,0.12)] px-2.5 py-[2px] text-[11px] text-ink-150 hover:border-gold hover:text-gold"
-            >
-              → {STATUS[s].label}
-            </button>
-          ))}
+          <button
+            onClick={(e) => openMenu(e, bulkItems())}
+            className="rounded-full border border-[rgba(245,245,245,0.12)] px-2.5 py-[2px] text-[11px] text-ink-150 hover:border-gold hover:text-gold"
+          >
+            Acciones en lote ▾
+          </button>
           <div className="flex-1" />
           <button
             onClick={() => setSelected(new Set())}
@@ -512,7 +596,7 @@ export default function ContactsWorkspace({
                 confirmLabel: "Mover",
                 danger: true,
               });
-              if (ok) run(() => softDelete("contacts", ids), "Movidos a la papelera.");
+              if (ok) run(() => softDelete(entity, ids), "Movidos a la papelera.");
             }}
             className="rounded-full bg-[#FF8F7A] px-3 py-[2px] text-[11px] font-semibold text-ink-950"
           >
@@ -521,7 +605,6 @@ export default function ContactsWorkspace({
         </div>
       )}
 
-      {/* vista activa */}
       {config.view === "grid" && (
         <DataGrid
           rows={shown}
@@ -543,10 +626,13 @@ export default function ContactsWorkspace({
           onResize={setWidth}
           onQuickCreate={(name) =>
             start(async () => {
-              const res = await quickCreateContact(name);
+              const res =
+                entity === "contacts"
+                  ? await quickCreateContact(name)
+                  : await quickCreateRecord(entity, name);
               if (res?.error) toast(res.error, "error");
               else {
-                toast("Contacto creado.");
+                toast(`${words.one[0].toUpperCase()}${words.one.slice(1)} creado.`);
                 router.refresh();
               }
             })
@@ -567,19 +653,13 @@ export default function ContactsWorkspace({
       )}
 
       {config.view === "calendar" && (
-        <CalendarView
-          rows={shown}
-          dateField={calendarField}
-          onOpen={setOpenRow}
-          onRowMenu={rowMenu}
-        />
+        <CalendarView rows={shown} dateField={calendarField} onOpen={setOpenRow} onRowMenu={rowMenu} />
       )}
 
       {config.view === "gallery" && (
         <GalleryView rows={shown} fields={visibleFields} onOpen={setOpenRow} onRowMenu={rowMenu} />
       )}
 
-      {/* paginación sólo en tabla sin agrupar */}
       {config.view === "grid" && !config.groupBy && total > config.per && (
         <div className="flex items-center gap-3 border-t border-hair px-4 py-2 text-[12px] text-ink-400 lg:px-6">
           <select
@@ -623,6 +703,7 @@ export default function ContactsWorkspace({
           members={members}
           onEdit={edit}
           onClose={() => setOpenRow(null)}
+          detailPath={detailPath}
         />
       )}
     </div>
