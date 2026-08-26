@@ -6,6 +6,7 @@ import DataSettings from "@/components/DataSettings";
 import InstallApp from "@/components/InstallApp";
 import TeamSettings from "@/components/TeamSettings";
 import { ApiSettings, FieldsSettings } from "@/components/ApiSettings";
+import IntegrationsSettings, { type Integration } from "@/components/IntegrationsSettings";
 import { getSession } from "@/lib/workspace";
 import { GOLD, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, relative } from "@/lib/format";
@@ -19,6 +20,7 @@ const TABS: [string, string][] = [
   ["pipeline", "Pipeline"],
   ["fields", "Campos"],
   ["api", "API"],
+  ["integrations", "Integraciones"],
   ["audit", "Historial"],
   ["data", "Datos"],
   ["app", "Aplicación"],
@@ -56,7 +58,7 @@ export default async function SettingsPage({
   const needsDeals = tab === "pipeline" || tab === "data";
   const needsCounts = tab === "data";
 
-  const [dealsRes, invitationsRes, fieldsRes, auditRes, countsRes] = await Promise.all([
+  const [dealsRes, invitationsRes, fieldsRes, integrationsRes, auditRes, countsRes] = await Promise.all([
     needsDeals
       ? supabase.from("deals").select("id, stage, value").is("deleted_at", null)
       : Promise.resolve({ data: [] }),
@@ -65,6 +67,9 @@ export default async function SettingsPage({
       : Promise.resolve({ data: [] }),
     tab === "fields"
       ? supabase.from("custom_fields").select("*").order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    tab === "integrations"
+      ? supabase.from("integrations").select("*")
       : Promise.resolve({ data: [] }),
     tab === "audit"
       ? supabase
@@ -86,6 +91,7 @@ export default async function SettingsPage({
   const invitations = invitationsRes.data;
   const fields = fieldsRes.data;
   const audit = auditRes.data;
+  const integrations = (integrationsRes.data ?? []) as Integration[];
   const [contactCount, companyCount, activityCount] = countsRes ?? [
     { count: 0 },
     { count: 0 },
@@ -179,6 +185,14 @@ export default async function SettingsPage({
 
             {tab === "api" && (
               <ApiSettings workspace={workspace} isAdmin={isAdmin} origin={origin} />
+            )}
+
+            {tab === "integrations" && (
+              <IntegrationsSettings
+                n8n={integrations.find((i) => i.provider === "n8n") ?? null}
+                make={integrations.find((i) => i.provider === "make") ?? null}
+                origin={origin}
+              />
             )}
 
             {tab === "audit" && (

@@ -94,6 +94,12 @@ export type WorkflowRow = {
   runs_count: number;
   last_run_at: string | null;
   created_at: string;
+  engine: "aurum" | "n8n" | "make";
+  external_id: string | null;
+  external_url: string | null;
+  external_name: string | null;
+  external_synced_at: string | null;
+  external_error: string | null;
 };
 
 export type RunRow = {
@@ -361,6 +367,8 @@ export async function fireTrigger(
       const conditions = flow.conditions ?? [];
       if (conditions.length && !conditions.every((c) => matches(payload.record, c))) continue;
 
+      const external = flow.engine !== "aurum" && flow.external_url;
+
       const { data: run } = await ctx.supabase
         .from("workflow_runs")
         .insert({
@@ -383,10 +391,67 @@ export async function fireTrigger(
         .update({ runs_count: (flow.runs_count ?? 0) + 1, last_run_at: new Date().toISOString() })
         .eq("id", flow.id);
 
-      await runSteps(ctx, run, flow.steps ?? [], { ...payload.record }, 0, []);
+      if (external) {
+        await handOff(ctx, flow, run, payload);
+      } else {
+        await runSteps(ctx, run, flow.steps ?? [], { ...payload.record }, 0, []);
+      }
     }
   } catch {
     // Silencio deliberado: la automatización no puede romper el CRM.
+  }
+}
+
+/**
+ * Entrega el disparo al motor externo (n8n o Make).
+ *
+ * Aurum ya ha comprobado el disparador y las condiciones; a partir de aquí
+ * los pasos los ejecuta el otro motor llamando de vuelta a la API del CRM.
+ */
+async function handOff(
+  ctx: Ctx,
+  flow: WorkflowRow,
+  run: { id: string },
+  payload: { entity: string; record: Record<string, unknown> }
+) {
+  const log: RunRow["log"] = [];
+  const at = new Date().toISOString();
+
+  try {
+    const res = await fetch(flow.external_url!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflow: { id: flow.id, name: flow.name, trigger: flow.trigger },
+        entity: payload.entity,
+        record: payload.record,
+        firedAt: at,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    log.push({
+      at,
+      step: 0,
+      action: flow.engine,
+      detail: `Entregado a ${flow.engine} → HTTP ${res.status}`,
+    });
+
+    await ctx.supabase
+      .from("workflow_runs")
+      .update({
+        status: res.ok ? "done" : "error",
+        log,
+        error: res.ok ? null : `El motor externo respondió ${res.status}.`,
+      })
+      .eq("id", run.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.push({ at, step: 0, action: flow.engine, detail: `Error: ${message}` });
+    await ctx.supabase
+      .from("workflow_runs")
+      .update({ status: "error", log, error: message })
+      .eq("id", run.id);
   }
 }
 

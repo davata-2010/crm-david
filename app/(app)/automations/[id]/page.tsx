@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/PageHeader";
 import WorkflowEditor from "@/components/WorkflowEditor";
+import WorkflowEngine from "@/components/WorkflowEngine";
 import { getSession } from "@/lib/workspace";
 import { contactFields, dealFields } from "@/lib/fields";
 import { TRIGGERS, type RunRow, type WorkflowRow } from "@/lib/workflows";
@@ -32,6 +33,13 @@ export default async function WorkflowPage({ params }: { params: { id: string } 
         .order("created_at", { ascending: false })
         .limit(20),
     ]);
+
+  const { data: n8nCfg } = await s.supabase
+    .from("integrations")
+    .select("active, base_url, api_key")
+    .eq("provider", "n8n")
+    .maybeSingle();
+  const n8nReady = !!(n8nCfg?.active && n8nCfg.base_url && n8nCfg.api_key);
 
   if (!flow) notFound();
 
@@ -74,6 +82,9 @@ export default async function WorkflowPage({ params }: { params: { id: string } 
             forms={formsRes.data ?? []}
           />
 
+          <div className="flex flex-col gap-4">
+          <WorkflowEngine workflow={workflow} n8nReady={n8nReady} />
+
           <div className="panel px-5 pb-3 pt-[18px]">
             <div className="text-[14px] font-semibold">Historial</div>
             <div className="mt-1 text-[11.5px] text-ink-400">
@@ -103,6 +114,7 @@ export default async function WorkflowPage({ params }: { params: { id: string } 
                 </details>
               ))}
             </div>
+          </div>
           </div>
         </div>
       </div>
