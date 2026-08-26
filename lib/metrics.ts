@@ -45,7 +45,11 @@ export function weightedValue(d: Deal) {
 
 /* ============================================================== dashboard */
 
-export function buildDashboard(deals: Deal[], activities: Activity[]) {
+export function buildDashboard(
+  deals: Deal[],
+  activities: Pick<Activity, "deal_id" | "occurred_at">[],
+  activityTotal?: number
+) {
   const open = deals.filter(isOpen);
   const won = deals.filter(isWon);
   const lost = deals.filter(isLost);
@@ -137,7 +141,7 @@ export function buildDashboard(deals: Deal[], activities: Activity[]) {
       label: "Forecast ponderado",
       value: eurCompact(weightedTotal),
       sub: avgCycle ? `Ciclo medio ${avgCycle} d` : "Sin ciclo aún",
-      delta: `${activities.length} act.`,
+      delta: `${activityTotal ?? activities.length} act.`,
       deltaColor: "#8A8A8A",
       bars: toBars(actBuckets.map((b) => b.count)),
       href: "/reports",
@@ -173,7 +177,10 @@ export function buildDashboard(deals: Deal[], activities: Activity[]) {
 }
 
 /** Deals que necesitan atención: sin actividad 14 días o cierre inminente. */
-export function needsAttention(deals: Deal[], activities: Activity[]) {
+export function needsAttention(
+  deals: Deal[],
+  activities: Pick<Activity, "deal_id" | "occurred_at">[]
+) {
   const lastByDeal = new Map<string, number>();
   activities.forEach((a) => {
     if (!a.deal_id) return;

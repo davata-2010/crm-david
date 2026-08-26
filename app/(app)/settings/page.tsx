@@ -51,27 +51,46 @@ export default async function SettingsPage({
   const proto = host.startsWith("localhost") ? "http" : "https";
   const origin = `${proto}://${host}`;
 
-  const [
-    { data: dealsData },
-    contactCount,
-    companyCount,
-    activityCount,
-    { data: invitations },
-    { data: fields },
-    { data: audit },
-  ] = await Promise.all([
-    supabase.from("deals").select("id, stage, value").is("deleted_at", null),
-    supabase.from("contacts").select("id", { count: "exact", head: true }).is("deleted_at", null),
-    supabase.from("companies").select("id", { count: "exact", head: true }).is("deleted_at", null),
-    supabase.from("activities").select("id", { count: "exact", head: true }).is("deleted_at", null),
-    supabase.from("invitations").select("*").order("created_at", { ascending: false }),
-    supabase.from("custom_fields").select("*").order("created_at", { ascending: true }),
-    supabase
-      .from("audit_log")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(120),
+  // Cada pestaña pide sólo lo suyo: entrar en Ajustes no debe costar
+  // siete consultas cuando se ven los datos de una.
+  const needsDeals = tab === "pipeline" || tab === "data";
+  const needsCounts = tab === "data";
+
+  const [dealsRes, invitationsRes, fieldsRes, auditRes, countsRes] = await Promise.all([
+    needsDeals
+      ? supabase.from("deals").select("id, stage, value").is("deleted_at", null)
+      : Promise.resolve({ data: [] }),
+    tab === "team"
+      ? supabase.from("invitations").select("*").order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    tab === "fields"
+      ? supabase.from("custom_fields").select("*").order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] }),
+    tab === "audit"
+      ? supabase
+          .from("audit_log")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(120)
+      : Promise.resolve({ data: [] }),
+    needsCounts
+      ? Promise.all([
+          supabase.from("contacts").select("id", { count: "exact", head: true }).is("deleted_at", null),
+          supabase.from("companies").select("id", { count: "exact", head: true }).is("deleted_at", null),
+          supabase.from("activities").select("id", { count: "exact", head: true }).is("deleted_at", null),
+        ])
+      : Promise.resolve(null),
   ]);
+
+  const dealsData = dealsRes.data;
+  const invitations = invitationsRes.data;
+  const fields = fieldsRes.data;
+  const audit = auditRes.data;
+  const [contactCount, companyCount, activityCount] = countsRes ?? [
+    { count: 0 },
+    { count: 0 },
+    { count: 0 },
+  ];
 
   const deals = (dealsData ?? []) as Deal[];
   const entries = (audit ?? []) as AuditEntry[];

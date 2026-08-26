@@ -67,69 +67,109 @@ export async function seedDemoData() {
   const user = { id: s.userId, email: s.email };
   const ws = s.workspace.id;
 
-  const { count } = await supabase
-    .from("contacts")
-    .select("id", { count: "exact", head: true })
-    .is("deleted_at", null);
-  if ((count ?? 0) > 0) return { error: "El workspace ya tiene contactos." };
-
   const author = s.profile?.full_name || s.email.split("@")[0];
 
-  const { data: companies, error: cErr } = await supabase
-    .from("companies")
-    .insert(COMPANIES.map((c) => ({ ...c, owner_id: user.id, workspace_id: ws })))
-    .select("id, name");
-  if (cErr) return { error: cErr.message };
-  const companyId = new Map(companies!.map((c) => [c.name, c.id]));
+  // El seed es reanudable: si una tanda falló a medias (o si se añaden filas
+  // nuevas al set), crea sólo lo que falte en vez de negarse a hacer nada.
+  const [existingCompanies, existingContacts, existingDeals, activityCount] =
+    await Promise.all([
+      supabase.from("companies").select("id, name").is("deleted_at", null),
+      supabase.from("contacts").select("id, name").is("deleted_at", null),
+      supabase.from("deals").select("id, name, contact_id").is("deleted_at", null),
+      supabase.from("activities").select("id", { count: "exact", head: true }).is("deleted_at", null),
+    ]);
 
-  const { data: contacts, error: ctErr } = await supabase
-    .from("contacts")
-    .insert(
-      CONTACTS.map((c, i) => ({
-        owner_id: user.id,
-        workspace_id: ws,
-        assigned_to: user.id,
-        company_id: companyId.get(c.company) ?? null,
-        name: c.name,
-        email: c.email,
-        phone: c.phone,
-        role: c.role,
-        status: c.status,
-        source: c.source,
-        timezone: "CET · Madrid",
-        tags: (c as { tags?: string }).tags?.split(", ") ?? [],
-        created_at: daysAgo(120 - i * 9),
-      }))
-    )
-    .select("id, name");
-  if (ctErr) return { error: ctErr.message };
-  const contactId = new Map(contacts!.map((c) => [c.name, c.id]));
+  const companyId = new Map((existingCompanies.data ?? []).map((c) => [c.name, c.id]));
+  const contactId = new Map((existingContacts.data ?? []).map((c) => [c.name, c.id]));
+  let deals = existingDeals.data ?? [];
 
-  const { data: deals, error: dErr } = await supabase
-    .from("deals")
-    .insert(
-      DEALS.map((d, i) => ({
-        owner_id: user.id,
-        workspace_id: ws,
-        assigned_to: user.id,
-        company_id: companyId.get(d.company) ?? null,
-        contact_id: contactId.get(d.contact) ?? null,
-        name: d.name,
-        value: d.value,
-        stage: d.stage,
-        project_type: d.type,
-        close_date: dateAhead(d.close),
-        owner_initials: d.owner,
-        tags: d.stage === 6 ? [] : d.value >= 60000 ? ["enterprise"] : ["pyme"],
-        lost_reason: d.stage === 6 ? "Eligió a un competidor" : "",
-        notes: "",
-        created_at: daysAgo(90 - i * 6),
-        closed_at: d.stage >= 5 ? daysAgo(3) : null,
-      }))
-    )
-    .select("id, name, contact_id");
-  if (dErr) return { error: dErr.message };
-  const mainDeal = deals!.find((d) => d.name === "Agente de soporte RAG");
+  const nothingMissing =
+    COMPANIES.every((c) => companyId.has(c.name)) &&
+    CONTACTS.every((c) => contactId.has(c.name)) &&
+    DEALS.every((d) => deals.some((x) => x.name === d.name)) &&
+    (activityCount.count ?? 0) > 0;
+
+  if (nothingMissing) return { error: "El workspace ya tiene los datos de ejemplo." };
+
+  /* ---------------------------------------------------------- empresas --- */
+  const missingCompanies = COMPANIES.filter((c) => !companyId.has(c.name));
+  if (missingCompanies.length) {
+    const { data, error } = await supabase
+      .from("companies")
+      .insert(missingCompanies.map((c) => ({ ...c, owner_id: user.id, workspace_id: ws })))
+      .select("id, name");
+    if (error) return { error: error.message };
+    (data ?? []).forEach((c) => companyId.set(c.name, c.id));
+  }
+
+  /* --------------------------------------------------------- contactos --- */
+  const missingContacts = CONTACTS.map((c, i) => ({ c, i })).filter(
+    ({ c }) => !contactId.has(c.name)
+  );
+  if (missingContacts.length) {
+    const { data, error } = await supabase
+      .from("contacts")
+      .insert(
+        missingContacts.map(({ c, i }) => ({
+          owner_id: user.id,
+          workspace_id: ws,
+          assigned_to: user.id,
+          company_id: companyId.get(c.company) ?? null,
+          name: c.name,
+          email: c.email,
+          phone: c.phone,
+          role: c.role,
+          status: c.status,
+          source: c.source,
+          timezone: "CET · Madrid",
+          tags: (c as { tags?: string }).tags?.split(", ") ?? [],
+          created_at: daysAgo(120 - i * 9),
+        }))
+      )
+      .select("id, name");
+    if (error) return { error: error.message };
+    (data ?? []).forEach((c) => contactId.set(c.name, c.id));
+  }
+
+  /* ------------------------------------------------------------- deals --- */
+  const missingDeals = DEALS.map((d, i) => ({ d, i })).filter(
+    ({ d }) => !deals.some((x) => x.name === d.name)
+  );
+  if (missingDeals.length) {
+    const { data, error } = await supabase
+      .from("deals")
+      .insert(
+        missingDeals.map(({ d, i }) => ({
+          owner_id: user.id,
+          workspace_id: ws,
+          assigned_to: user.id,
+          company_id: companyId.get(d.company) ?? null,
+          contact_id: contactId.get(d.contact) ?? null,
+          name: d.name,
+          value: d.value,
+          stage: d.stage,
+          project_type: d.type,
+          close_date: dateAhead(d.close),
+          owner_initials: d.owner,
+          tags: d.stage === 6 ? [] : d.value >= 60000 ? ["enterprise"] : ["pyme"],
+          lost_reason: d.stage === 6 ? "Eligió a un competidor" : "",
+          notes: "",
+          created_at: daysAgo(90 - i * 6),
+          closed_at: d.stage >= 5 ? daysAgo(3) : null,
+        }))
+      )
+      .select("id, name, contact_id");
+    if (error) return { error: error.message };
+    deals = [...deals, ...(data ?? [])];
+  }
+
+  // Si ya había actividades, no se duplican: el resto del set ya está puesto.
+  if ((activityCount.count ?? 0) > 0) {
+    revalidatePath("/", "layout");
+    return {};
+  }
+
+  const mainDeal = deals.find((d) => d.name === "Agente de soporte RAG");
 
   /**
    * Todas las actividades pasan por aquí para que salgan con la MISMA forma.
@@ -161,8 +201,8 @@ export async function seedDemoData() {
   });
 
   const dealByContact = (name: string) =>
-    deals!.find((d) => d.contact_id === contactId.get(name))?.id ?? null;
-  const dealByName = (name: string) => deals!.find((d) => d.name === name)?.id ?? null;
+    deals.find((d) => d.contact_id === contactId.get(name))?.id ?? null;
+  const dealByName = (name: string) => deals.find((d) => d.name === name)?.id ?? null;
 
   const activities = [
     ...TIMELINE.map((t) =>

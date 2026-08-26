@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useChrome } from "@/components/AppChrome";
 import { wipeWorkspace } from "@/app/actions";
+import { seedDemoData } from "@/app/seed";
 import { createClient } from "@/lib/supabase/client";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { STAGES } from "@/lib/constants";
@@ -114,6 +115,31 @@ export default function DataSettings({
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="panel p-[26px]">
+        <div className="text-[15px] font-semibold tracking-[-0.01em]">Datos de ejemplo</div>
+        <div className="mt-1 text-[12.5px] leading-[1.6] text-ink-350">
+          Carga el set de la agencia: empresas, contactos, deals, timeline y tareas. Es
+          reanudable, así que si una carga anterior quedó a medias completa sólo lo que falte,
+          sin duplicar nada.
+        </div>
+        <button
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const res = await seedDemoData();
+              if (res?.error) toast(res.error, "error");
+              else {
+                toast("Datos de ejemplo cargados.");
+                router.refresh();
+              }
+            })
+          }
+          className="mt-4 rounded-[10px] border border-[rgba(250,197,28,0.35)] bg-ink-800 px-5 py-2.5 text-[13px] font-semibold text-gold transition-colors hover:border-gold hover:bg-gold hover:text-ink-950 disabled:opacity-50"
+        >
+          {pending ? "Cargando…" : "Cargar / completar datos de ejemplo"}
+        </button>
+      </div>
+
       <div className="panel p-[26px]">
         <div className="text-[15px] font-semibold tracking-[-0.01em]">Exportar datos</div>
         <div className="mt-1 text-[12.5px] text-ink-350">

@@ -17,6 +17,7 @@ export type NavCounts = {
   tasks: number;
   activities: number;
   trash: number;
+  overdue: number;
 };
 
 const NAV: {

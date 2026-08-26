@@ -6,6 +6,16 @@ import type { MemberRole, Membership, Profile, Workspace } from "@/lib/types";
 
 export const WS_COOKIE = "aurum_ws";
 
+export type Counts = {
+  contacts: number;
+  companies: number;
+  deals: number;
+  activities: number;
+  tasks: number;
+  overdue: number;
+  trash: number;
+};
+
 export type Session = {
   supabase: ReturnType<typeof createClient>;
   userId: string;
@@ -17,11 +27,26 @@ export type Session = {
   isAdmin: boolean;
   workspaces: Workspace[];
   members: Membership[];
+  counts: Counts;
+};
+
+const EMPTY_COUNTS: Counts = {
+  contacts: 0,
+  companies: 0,
+  deals: 0,
+  activities: 0,
+  tasks: 0,
+  overdue: 0,
+  trash: 0,
 };
 
 /**
- * Sesión de trabajo: usuario, workspace activo, rol y compañeros.
- * Cacheada por petición, así que se puede llamar desde cualquier página.
+ * Sesión de trabajo completa en UNA sola llamada a la base de datos.
+ *
+ * Antes eran cuatro consultas encadenadas más siete contadores; con Supabase
+ * en Irlanda y las funciones en Ohio, cada una costaba un viaje transatlántico.
+ * `app_bootstrap` devuelve workspace, rol, perfil, compañeros y contadores de
+ * golpe. Cacheada por petición: se puede llamar desde el layout y la página.
  */
 export const getSession = cache(async (): Promise<Session> => {
   const supabase = createClient();
@@ -30,73 +55,58 @@ export const getSession = cache(async (): Promise<Session> => {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: membershipRows } = await supabase
-    .from("memberships")
-    .select("*, workspace:workspaces(*)")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true });
+  const want = cookies().get(WS_COOKIE)?.value ?? null;
+  const { data } = await supabase.rpc("app_bootstrap", { want });
 
-  const mine = (membershipRows ?? []) as (Membership & { workspace: Workspace })[];
+  if (!data?.workspace) return bootstrapFirstWorkspace(supabase, user.id, user.email!);
 
-  if (mine.length === 0) {
-    // Sin workspace todavía (usuario creado antes de la migración): se crea uno.
-    const { data: ws } = await supabase
-      .from("workspaces")
-      .insert({ name: "Mi agencia", created_by: user.id })
-      .select("*")
-      .single();
-    if (ws) {
-      await supabase
-        .from("memberships")
-        .insert({ workspace_id: ws.id, user_id: user.id, role: "owner" });
-      return getSessionFor(supabase, user.id, user.email!, ws as Workspace, "owner", [
-        ws as Workspace,
-      ]);
-    }
-    redirect("/login");
-  }
+  const role = (data.role ?? "member") as MemberRole;
 
-  const wanted = cookies().get(WS_COOKIE)?.value;
-  const active = mine.find((m) => m.workspace_id === wanted) ?? mine[0];
-
-  return getSessionFor(
+  return {
     supabase,
-    user.id,
-    user.email!,
-    active.workspace,
-    active.role,
-    mine.map((m) => m.workspace)
-  );
+    userId: user.id,
+    email: user.email!,
+    profile: (data.profile as Profile) ?? null,
+    workspace: data.workspace as Workspace,
+    role,
+    canWrite: role !== "viewer",
+    isAdmin: role === "owner" || role === "admin",
+    workspaces: (data.workspaces ?? []) as Workspace[],
+    members: (data.members ?? []) as Membership[],
+    counts: { ...EMPTY_COUNTS, ...(data.counts ?? {}) },
+  };
 });
 
-async function getSessionFor(
+/** Red de seguridad: usuario sin workspace (cuenta anterior a la migración). */
+async function bootstrapFirstWorkspace(
   supabase: ReturnType<typeof createClient>,
   userId: string,
-  email: string,
-  workspace: Workspace,
-  role: MemberRole,
-  workspaces: Workspace[]
+  email: string
 ): Promise<Session> {
-  const [{ data: profile }, { data: members }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
-    supabase
-      .from("memberships")
-      .select("*, profile:profiles(*)")
-      .eq("workspace_id", workspace.id)
-      .order("created_at", { ascending: true }),
-  ]);
+  const { data: ws } = await supabase
+    .from("workspaces")
+    .insert({ name: "Mi agencia", created_by: userId })
+    .select("*")
+    .single();
+
+  if (!ws) redirect("/login");
+
+  await supabase
+    .from("memberships")
+    .insert({ workspace_id: ws.id, user_id: userId, role: "owner" });
 
   return {
     supabase,
     userId,
     email,
-    profile: (profile as Profile) ?? null,
-    workspace,
-    role,
-    canWrite: role !== "viewer",
-    isAdmin: role === "owner" || role === "admin",
-    workspaces,
-    members: (members ?? []) as Membership[],
+    profile: null,
+    workspace: ws as Workspace,
+    role: "owner",
+    canWrite: true,
+    isAdmin: true,
+    workspaces: [ws as Workspace],
+    members: [],
+    counts: EMPTY_COUNTS,
   };
 }
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/workspace";
 import PageHeader from "@/components/PageHeader";
 import EmptyWorkspace from "@/components/EmptyWorkspace";
 import { buildDashboard, needsAttention, splitTasks } from "@/lib/metrics";
@@ -10,25 +10,49 @@ import type { Activity, Deal } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const supabase = createClient();
+  const s = await getSession();
+  const { supabase, counts } = s;
 
-  const [{ data: dealsData }, { data: activitiesData }] = await Promise.all([
-    supabase
-      .from("deals")
-      .select("*, company:companies(id,name), contact:contacts(id,name)")
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("activities")
-      .select("*, contact:contacts(id,name), deal:deals(id,name)")
-      .is("deleted_at", null)
-      .order("occurred_at", { ascending: false }),
-  ]);
+  // Sólo lo necesario: los deals completos (son pocos y alimentan todas las
+  // métricas), las actividades del último año reducidas a dos columnas para
+  // las barras y el aviso de silencio, y las tareas abiertas por separado.
+  const yearAgo = new Date(Date.now() - 370 * 86_400_000).toISOString();
+
+  const [{ data: dealsData }, { data: liteData }, { data: taskData }, { data: upcomingData }] =
+    await Promise.all([
+      supabase
+        .from("deals")
+        .select("*, company:companies(id,name), contact:contacts(id,name)")
+        .is("deleted_at", null),
+      supabase
+        .from("activities")
+        .select("deal_id, occurred_at")
+        .is("deleted_at", null)
+        .gte("occurred_at", yearAgo),
+      supabase
+        .from("activities")
+        .select("*, contact:contacts(id,name), deal:deals(id,name)")
+        .is("deleted_at", null)
+        .not("due_date", "is", null)
+        .eq("completed", false)
+        .order("due_date", { ascending: true })
+        .limit(50),
+      supabase
+        .from("activities")
+        .select("*, contact:contacts(id,name), deal:deals(id,name)")
+        .is("deleted_at", null)
+        .is("due_date", null)
+        .gte("occurred_at", new Date(Date.now() - 3_600_000).toISOString())
+        .order("occurred_at", { ascending: true })
+        .limit(4),
+    ]);
 
   const deals = (dealsData ?? []) as Deal[];
-  const activities = (activitiesData ?? []) as Activity[];
+  const lite = (liteData ?? []) as Pick<Activity, "deal_id" | "occurred_at">[];
+  const pendingTasks = (taskData ?? []) as Activity[];
+  const upcoming = (upcomingData ?? []) as Activity[];
 
-  if (deals.length === 0 && activities.length === 0) {
+  if (deals.length === 0 && counts.activities === 0) {
     return (
       <>
         <PageHeader crumb="Panel" title="Resumen de agencia" />
@@ -39,22 +63,17 @@ export default async function DashboardPage() {
     );
   }
 
-  const { kpis, stageBars, pipelineTotal } = buildDashboard(deals, activities);
-  const attention = needsAttention(deals, activities);
-  const tasks = splitTasks(activities);
+  const { kpis, stageBars, pipelineTotal } = buildDashboard(deals, lite, counts.activities);
+  const attention = needsAttention(deals, lite);
+  const tasks = splitTasks(pendingTasks);
   const focus = [...tasks.overdue, ...tasks.today, ...tasks.week].slice(0, 6);
-
-  const upcoming = activities
-    .filter((a) => !a.due_date && new Date(a.occurred_at).getTime() >= Date.now() - 3_600_000)
-    .sort((a, b) => +new Date(a.occurred_at) - +new Date(b.occurred_at))
-    .slice(0, 4);
 
   return (
     <>
       <PageHeader
         crumb="Panel"
         title="Resumen de agencia"
-        subtitle={`${tasks.pendingCount} tareas pendientes · ${attention.length} deals requieren atención`}
+        subtitle={`${counts.tasks} tareas pendientes · ${attention.length} deals requieren atención`}
       />
 
       <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">

@@ -65,21 +65,11 @@ export default async function ContactsPage({ searchParams }: { searchParams: Sea
     .order(sortKey, { ascending, nullsFirst: false })
     .range(page * per, page * per + per - 1);
 
-  // Facetas y opciones de filtro: consultas ligeras, no la tabla entera.
-  const [statusCounts, companies, tagRows, views] = await Promise.all([
-    Promise.all(
-      (["all", "lead", "prospect", "customer"] as const).map(async (k) => {
-        let c = supabase
-          .from("contacts")
-          .select("id", { count: "exact", head: true })
-          .is("deleted_at", null);
-        if (k !== "all") c = c.eq("status", k);
-        const { count } = await c;
-        return [k, count ?? 0] as const;
-      })
-    ),
+  // Facetas (conteos por estado + etiquetas distintas) en una sola llamada,
+  // en vez de cuatro conteos y un escaneo de 2.000 filas.
+  const [{ data: facets }, companies, views] = await Promise.all([
+    supabase.rpc("contact_facets"),
     supabase.from("companies").select("id, name").is("deleted_at", null).order("name"),
-    supabase.from("contacts").select("tags").is("deleted_at", null).limit(2000),
     supabase
       .from("saved_views")
       .select("*")
@@ -87,9 +77,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Sea
       .order("created_at", { ascending: true }),
   ]);
 
-  const allTags = Array.from(
-    new Set(((tagRows.data ?? []) as { tags: string[] }[]).flatMap((r) => r.tags ?? []))
-  ).sort();
+  const allTags = ((facets?.tags ?? []) as string[]).filter(Boolean);
 
   const rows = (data ?? []) as ContactRow[];
   const total = count ?? 0;
@@ -108,7 +96,12 @@ export default async function ContactsPage({ searchParams }: { searchParams: Sea
           total={total}
           page={page}
           per={per}
-          statusCounts={Object.fromEntries(statusCounts)}
+          statusCounts={{
+            all: facets?.all ?? 0,
+            lead: facets?.lead ?? 0,
+            prospect: facets?.prospect ?? 0,
+            customer: facets?.customer ?? 0,
+          }}
           companies={companies.data ?? []}
           allTags={allTags}
           members={s.members}
