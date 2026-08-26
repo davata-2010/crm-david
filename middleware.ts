@@ -10,6 +10,7 @@ const PUBLIC_PATHS = [
   "/api/leads",
   "/api/forms",
   "/api/cron",
+  "/api/automation",
   "/f/",
   "/.well-known",
   "/manifest.webmanifest",
