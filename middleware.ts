@@ -1,9 +1,38 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/invite", "/api/leads", "/offline", "/manifest.webmanifest", "/sw.js"];
+/** Rutas que nunca necesitan sesión. */
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/invite",
+  "/offline",
+  "/api/leads",
+  "/manifest.webmanifest",
+  "/sw.js",
+];
+
+const isPublic = (path: string) => PUBLIC_PATHS.some((p) => path.startsWith(p));
+
+/** ¿Hay siquiera una cookie de sesión de Supabase? */
+function hasAuthCookie(request: NextRequest) {
+  return request.cookies.getAll().some((c) => /^sb-.*-auth-token/.test(c.name));
+}
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Camino rápido: sin cookie de sesión no hay nada que refrescar ni validar,
+  // así que no se llama a Supabase. Antes esto costaba una ida y vuelta a
+  // Irlanda incluso para abrir la pantalla de acceso.
+  if (!hasAuthCookie(request)) {
+    if (isPublic(path)) return NextResponse.next();
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.searchParams.set("next", path);
+    return NextResponse.redirect(url);
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -25,14 +54,13 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // Con cookie sí llamamos: es lo que refresca el token caducado, y un Server
+  // Component no puede escribir cookies por su cuenta.
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
-
-  if (!user && !isPublic) {
+  if (!user && !isPublic(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", path);
@@ -50,5 +78,12 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: [
+    /*
+     * Todo menos:
+     * - estáticos de Next y ficheros del PWA (nunca necesitan sesión)
+     * - imágenes y fuentes
+     */
+    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|manifest.webmanifest|offline|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
+  ],
 };

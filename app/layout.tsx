@@ -1,6 +1,20 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import InstallApp from "@/components/InstallApp";
+
+/**
+ * Inter autoalojada. Antes venía de fonts.googleapis.com con un <link
+ * rel="stylesheet">, que bloquea el primer pintado y obliga a dos handshakes
+ * extra (googleapis + gstatic). Next la sirve desde nuestro propio dominio,
+ * ya precargada y sin salto de tipografía.
+ */
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "Aurum · AI Agency CRM",
@@ -31,15 +45,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang="es" className={inter.variable}>
       <body>
         {children}
         <InstallApp compact />

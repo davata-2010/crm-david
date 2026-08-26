@@ -41,32 +41,35 @@ const EMPTY_COUNTS: Counts = {
 };
 
 /**
- * Sesión de trabajo completa en UNA sola llamada a la base de datos.
+ * Sesión completa en UNA sola ida y vuelta.
  *
- * Antes eran cuatro consultas encadenadas más siete contadores; con Supabase
- * en Irlanda y las funciones en Ohio, cada una costaba un viaje transatlántico.
- * `app_bootstrap` devuelve workspace, rol, perfil, compañeros y contadores de
- * golpe. Cacheada por petición: se puede llamar desde el layout y la página.
+ * No se llama a `auth.getUser()`: esa comprobación es otra petición de red a
+ * Supabase. La llamada a `app_bootstrap` ya va firmada con el JWT y Postgres
+ * valida la firma, así que si devuelve datos la sesión es válida — y si no,
+ * no lo es. El middleware sigue refrescando el token, que es lo único que un
+ * Server Component no puede hacer por sí mismo.
+ *
+ * Cacheada por petición: layout y página comparten el resultado.
  */
 export const getSession = cache(async (): Promise<Session> => {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
   const want = cookies().get(WS_COOKIE)?.value ?? null;
-  const { data } = await supabase.rpc("app_bootstrap", { want });
 
-  if (!data?.workspace) return bootstrapFirstWorkspace(supabase, user.id, user.email!);
+  const { data } = await supabase.rpc("app_bootstrap", { want });
+  if (!data?.user_id) redirect("/login");
+
+  if (!data.workspace) {
+    return bootstrapFirstWorkspace(supabase, data.user_id as string, (data.email as string) ?? "");
+  }
 
   const role = (data.role ?? "member") as MemberRole;
+  const profile = (data.profile as Profile) ?? null;
 
   return {
     supabase,
-    userId: user.id,
-    email: user.email!,
-    profile: (data.profile as Profile) ?? null,
+    userId: data.user_id as string,
+    email: (data.email as string) || profile?.email || "",
+    profile,
     workspace: data.workspace as Workspace,
     role,
     canWrite: role !== "viewer",
@@ -77,7 +80,7 @@ export const getSession = cache(async (): Promise<Session> => {
   };
 });
 
-/** Red de seguridad: usuario sin workspace (cuenta anterior a la migración). */
+/** Red de seguridad: usuario autenticado sin workspace todavía. */
 async function bootstrapFirstWorkspace(
   supabase: ReturnType<typeof createClient>,
   userId: string,

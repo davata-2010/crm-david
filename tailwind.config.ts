@@ -31,7 +31,7 @@ const config: Config = {
         gold: { DEFAULT: "#FAC51C", hover: "#ffd75e" },
         hair: "rgba(245,245,245,0.07)",
       },
-      fontFamily: { sans: ["Inter", "Helvetica", "sans-serif"] },
+      fontFamily: { sans: ["var(--font-inter)", "Inter", "Helvetica", "sans-serif"] },
       borderRadius: { xl2: "14px" },
     },
   },
