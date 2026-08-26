@@ -136,6 +136,28 @@ Botones de resumen de cuenta, borrador de email de seguimiento y puntuación de 
 
 **Requiere configurar `ANTHROPIC_API_KEY`** en las variables de entorno de Netlify. Sin ella, los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
 
+### Aplicación Android (APK)
+
+`android/` es un proyecto **TWA** (Trusted Web Activity): un APK real que abre el CRM a pantalla completa, sin barra de direcciones y sin pasar por el navegador.
+
+```powershell
+$env:AURUM_KEYSTORE_PASS = "..."
+powershell -ExecutionPolicy Bypass -File androiduild-apk.ps1
+# genera android\dist\Aurum-CRM-1.0.0.apk
+```
+
+Requiere Android Studio (aporta el JDK y el SDK). El APK pesa **menos de 1 MB** porque el render lo hace el motor del navegador del sistema, no un motor incrustado.
+
+**La vinculación con el dominio es lo que quita la barra de URL.** `public/.well-known/assetlinks.json` publica la huella SHA-256 del certificado de firma, y el APK declara el dominio en `asset_statements`. Si se cambia la clave de firma hay que actualizar ese fichero, o la app volverá a mostrar la barra.
+
+La clave de firma (`android/aurum.keystore`) **no está en el repositorio**. Para regenerarla:
+
+```
+keytool -genkeypair -v -keystore android/aurum.keystore -alias aurum   -keyalg RSA -keysize 2048 -validity 10950   -dname "CN=Aurum CRM, OU=Aurum, O=Aurum, L=Madrid, C=ES"
+```
+
+Los iconos de las cinco densidades los genera `npm run icons`, igual que los de la PWA y el `.ico` de escritorio.
+
 ### Aplicación de escritorio (Electron)
 
 `desktop/` contiene un envoltorio de Electron que empaqueta Aurum como aplicación nativa de Windows, sin pasar por ningún navegador.
