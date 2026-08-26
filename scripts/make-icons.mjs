@@ -136,3 +136,38 @@ for (const [path, size, opts] of files) {
   writeFileSync(path, png);
   console.log(`${path.padEnd(36)} ${size}×${size}  ${(png.length / 1024).toFixed(1)} KB`);
 }
+
+/* ------------------------------------------------- icono de Windows ---- */
+// Un .ico es una cabecera + un índice + los PNG incrustados tal cual.
+
+function encodeIco(entries) {
+  const dir = Buffer.alloc(6 + entries.length * 16);
+  dir.writeUInt16LE(0, 0);              // reservado
+  dir.writeUInt16LE(1, 2);              // tipo 1 = icono
+  dir.writeUInt16LE(entries.length, 4); // número de imágenes
+
+  let offset = dir.length;
+  entries.forEach((e, i) => {
+    const p = 6 + i * 16;
+    dir.writeUInt8(e.size >= 256 ? 0 : e.size, p);     // ancho (0 = 256)
+    dir.writeUInt8(e.size >= 256 ? 0 : e.size, p + 1); // alto
+    dir.writeUInt8(0, p + 2);           // paleta
+    dir.writeUInt8(0, p + 3);           // reservado
+    dir.writeUInt16LE(1, p + 4);        // planos
+    dir.writeUInt16LE(32, p + 6);       // bits por píxel
+    dir.writeUInt32LE(e.png.length, p + 8);
+    dir.writeUInt32LE(offset, p + 12);
+    offset += e.png.length;
+  });
+
+  return Buffer.concat([dir, ...entries.map((e) => e.png)]);
+}
+
+mkdirSync("desktop/build", { recursive: true });
+const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+const ico = encodeIco(icoSizes.map((size) => ({ size, png: render(size, { maskable: false }) })));
+writeFileSync("desktop/build/icon.ico", ico);
+console.log(`desktop/build/icon.ico`.padEnd(36) + `${icoSizes.join("/")}  ${(ico.length / 1024).toFixed(1)} KB`);
+
+writeFileSync("desktop/build/icon.png", render(512, { maskable: false }));
+console.log("desktop/build/icon.png".padEnd(36) + "512×512");

@@ -5,3 +5,5 @@ _design
 .netlify
 tsconfig.tsbuildinfo
 deno.lock
+desktop/node_modules
+desktop/dist

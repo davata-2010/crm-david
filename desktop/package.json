@@ -1,0 +1,59 @@
+{
+  "name": "aurum-crm-desktop",
+  "productName": "Aurum CRM",
+  "version": "1.0.0",
+  "description": "Aurum CRM como aplicación de escritorio",
+  "author": "Aurum",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable",
+    "dist:linux": "electron-builder --linux AppImage",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "agency.aurum.crm",
+    "productName": "Aurum CRM",
+    "copyright": "Aurum",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": ["main.js", "offline.html", "build/icon.png"],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aurum CRM",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Aurum-CRM-Instalador-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Aurum-CRM-Portable-${version}.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Office"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.business"
+    }
+  }
+}

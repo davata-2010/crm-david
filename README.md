@@ -136,6 +136,31 @@ Botones de resumen de cuenta, borrador de email de seguimiento y puntuación de 
 
 **Requiere configurar `ANTHROPIC_API_KEY`** en las variables de entorno de Netlify. Sin ella, los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
 
+### Aplicación de escritorio (Electron)
+
+`desktop/` contiene un envoltorio de Electron que empaqueta Aurum como aplicación nativa de Windows, sin pasar por ningún navegador.
+
+```bash
+cd desktop
+npm install
+npm run dist        # genera instalador y portable en desktop/dist
+npm start           # ejecuta sin empaquetar, para probar
+```
+
+Carga el sitio publicado, así que **se actualiza sola** con cada despliegue: no hay que reinstalar nada al cambiar el CRM.
+
+- Sesión persistente en su propia partición, así que el login se mantiene entre arranques.
+- Menú en español con atajos: `Ctrl+1` a `Ctrl+5` para saltar de sección, `Ctrl+N` para una ventana nueva.
+- Los enlaces externos se abren en el navegador del sistema; la app no puede navegar fuera de su dominio.
+- Recuerda tamaño y posición de la ventana.
+- Pantalla propia de «sin conexión» si no hay internet.
+- Una sola instancia: al abrirla de nuevo se trae al frente la que ya estaba.
+- `Ayuda → Cerrar sesión en esta app` borra la sesión guardada.
+
+El icono `.ico` multi-resolución lo genera el mismo script que los de la PWA (`npm run icons`), sin dependencias externas.
+
+**El instalador no está firmado digitalmente.** Windows mostrará el aviso de SmartScreen la primera vez: *Más información → Ejecutar de todas formas*. Firmarlo requiere un certificado de pago.
+
 ### Instalable como aplicación (PWA)
 
 Aurum se instala en móvil y ordenador desde el propio navegador: sin tiendas, sin cuenta de desarrollador y sin coste. Incluye manifiesto, iconos (normales y *maskable*), service worker y pantalla de sin conexión.
