@@ -3,7 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getSession } from "@/lib/workspace";
-import { buildN8nWorkflow, n8nActivate, n8nPing, n8nSync, n8nWebhookUrl } from "@/lib/n8n";
+import {
+  buildN8nExportFile,
+  buildN8nWorkflow,
+  n8nActivate,
+  n8nPing,
+  n8nSync,
+  n8nWebhookUrl,
+} from "@/lib/n8n";
 import { buildMakeBlueprint } from "@/lib/make";
 import type { WorkflowRow } from "@/lib/workflows";
 
@@ -188,7 +195,7 @@ export async function exportWorkflow(
 
   const body =
     target === "n8n"
-      ? buildN8nWorkflow(workflow, {
+      ? buildN8nExportFile(workflow, {
           crmUrl: crmUrl(),
           apiKey: s.workspace.api_key,
           webhookPath: `aurum-${workflow.id}`,

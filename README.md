@@ -107,6 +107,35 @@ El motor vive en TypeScript y se dispara desde las propias acciones del CRM. Pos
 
 Si una automatización falla, la ejecución queda marcada con el error y **no rompe la acción del usuario que la disparó**.
 
+### Ejecutar en n8n o en Make
+
+Cada automatización elige **dónde se ejecuta**, en el panel «Dónde se ejecuta» de su ficha.
+
+- **Dentro de Aurum** (por defecto). Sin dependencias externas y con esperas de cualquier duración.
+- **En n8n.** Aurum sigue evaluando el disparador y las condiciones —es quien conoce los datos— y llama al webhook del workflow con `{ workflow, entity, record, firedAt }`. n8n orquesta los pasos y vuelve a Aurum por API para escribir.
+
+El reparto es a propósito: el workflow que aparece en n8n es funcional de verdad y se puede ampliar allí con cualquier otro nodo (email, SMS, Slack, lo que sea) sin tocar el CRM.
+
+**Conectar n8n:** Ajustes → Integraciones → URL de la instancia y clave de API (en n8n: *Settings → n8n API → Create an API key*). El botón «Probar conexión» comprueba las credenciales de verdad contra `/api/v1/workflows`.
+
+**Reflejarla:** desde la automatización, «En n8n». Aurum crea el workflow —o actualiza el que ya creó, sin duplicar— y lo publica, porque un workflow despublicado no atiende su webhook. Guarda el id, el nombre, la URL del webhook y la fecha de la última sincronización.
+
+**Make** no permite crear escenarios por API sin plan de equipo, así que ahí la sincronización automática no existe. Desde cada automatización se descarga su *blueprint* y se importa con *Create a new scenario → Import Blueprint*: el escenario resultante funciona igual.
+
+Los dos JSON también se pueden descargar a mano («JSON para n8n», «Blueprint para Make»). El de n8n incluye el id del workflow, que es lo que `n8n import:workflow` necesita.
+
+**La API que ejecutan esos workflows:**
+
+```
+POST /api/automation/action
+X-Api-Key: aur_live_…
+{ "action": "add_tag", "entity": "contacts", "id": "…", "value": "vip" }
+```
+
+Acciones: `get_record` · `add_tag` · `remove_tag` · `set_status` · `set_stage` · `assign` · `create_task` · `add_note` · `create_deal`. Acepta `{{campo}}` en los textos igual que el motor interno, valida estado y etapa, y sólo toca registros del workspace al que pertenece la clave.
+
+> La clave del workspace viaja dentro del workflow generado, en la cabecera de cada nodo HTTP. Ese JSON es material sensible.
+
 ### Formularios de captación
 
 `/forms` — constructor de formularios con página pública propia.

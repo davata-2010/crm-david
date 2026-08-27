@@ -26,14 +26,16 @@ type N8nNode = {
 };
 
 export type N8nWorkflow = {
+  id?: string;
   name: string;
   nodes: N8nNode[];
   connections: Record<string, { main: { node: string; type: "main"; index: number }[][] }>;
   settings: Record<string, unknown>;
+  pinData?: Record<string, unknown>;
 };
 
 /** Identificador estable por workflow y paso: re-sincronizar no mueve nada. */
-function stableId(seed: string) {
+export function stableId(seed: string) {
   let h1 = 0x9e3779b9;
   let h2 = 0x85ebca6b;
   for (let i = 0; i < seed.length; i++) {
@@ -227,9 +229,27 @@ export function buildN8nWorkflow(
   };
 }
 
+/**
+ * Variante para descargar a fichero.
+ *
+ * `import:workflow` de n8n no genera el id del workflow: lo espera dentro del
+ * JSON y falla con una violación de NOT NULL si no está. La API REST, en
+ * cambio, rechaza el id al crear, así que sólo se añade en el fichero.
+ */
+export function buildN8nExportFile(
+  workflow: WorkflowRow,
+  opts: { crmUrl: string; apiKey: string; webhookPath: string }
+): N8nWorkflow {
+  return {
+    id: stableId(`${workflow.id}:workflow`).replace(/-/g, "").slice(0, 16),
+    ...buildN8nWorkflow(workflow, opts),
+    pinData: {},
+  };
+}
+
 /* =============================================================== cliente == */
 
-type N8nResult<T> = { ok: true; data: T } | { ok: false; error: string };
+type N8nResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
 async function call<T>(
   baseUrl: string,
@@ -266,7 +286,7 @@ async function call<T>(
           : res.status === 404
             ? "No encuentro la API de n8n en esa dirección."
             : `n8n respondió ${res.status}.`);
-      return { ok: false, error: message };
+      return { ok: false, error: message, status: res.status };
     }
 
     return { ok: true, data: parsed as T };
@@ -309,13 +329,41 @@ export async function n8nSync(
   return { ok: true as const, data: res.data };
 }
 
+/**
+ * Pone el workflow en marcha.
+ *
+ * n8n 2 renombró activar/desactivar a publicar/despublicar y dejó las rutas
+ * antiguas como obsoletas; las instancias 1.x sólo tienen las antiguas. Se
+ * intenta primero la nueva y se cae a la vieja sólo si no existe.
+ */
 export async function n8nActivate(baseUrl: string, apiKey: string, id: string, active: boolean) {
-  return call<{ id: string; active: boolean }>(
+  const modern = active ? "publish" : "unpublish";
+  const legacy = active ? "activate" : "deactivate";
+
+  const res = await call<{ id: string; active: boolean }>(
     baseUrl,
     apiKey,
-    `/workflows/${id}/${active ? "activate" : "deactivate"}`,
+    `/workflows/${id}/${modern}`,
     { method: "POST" }
   );
+  if (res.ok) return res;
+  if (res.status !== 404) return withConflictHint(res);
+
+  return withConflictHint(
+    await call<{ id: string; active: boolean }>(baseUrl, apiKey, `/workflows/${id}/${legacy}`, {
+      method: "POST",
+    })
+  );
+}
+
+/** El 409 al publicar casi siempre es otro workflow usando la misma ruta. */
+function withConflictHint<T>(res: N8nResult<T>): N8nResult<T> {
+  if (res.ok || res.status !== 409) return res;
+  return {
+    ok: false,
+    status: res.status,
+    error: `${res.error} Suele pasar cuando otro workflow de n8n ya usa esa misma ruta de webhook.`,
+  };
 }
 
 /** URL de producción del webhook que Aurum llamará al dispararse. */
