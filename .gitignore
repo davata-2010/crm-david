@@ -19,3 +19,4 @@ android/dist
 # Exportación estática: se genera con `npm run build`
 out
 android/app/src/main/assets
+supabase/.temp
