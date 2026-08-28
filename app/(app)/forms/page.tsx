@@ -1,29 +1,32 @@
+"use client";
+
 import Link from "next/link";
-import { headers } from "next/headers";
 import PageHeader from "@/components/PageHeader";
+import PageSkeleton from "@/components/PageSkeleton";
 import { NewFormButton } from "@/components/NewWorkflowButton";
-import { getSession } from "@/lib/workspace";
+import { useData, useSession } from "@/components/SessionGate";
+import { formUrl } from "@/lib/config";
 import { GOLD } from "@/lib/constants";
 import { relative } from "@/lib/format";
 import type { FormRow } from "@/components/FormBuilder";
+import { contactHref, formHref } from "@/lib/routes";
 
-export const dynamic = "force-dynamic";
+export default function FormsPage() {
+  const s = useSession();
+  const { data } = useData(async (s) => {
+    const [{ data: forms }, { data: recent }] = await Promise.all([
+      s.supabase.from("forms").select("*").order("created_at", { ascending: false }),
+      s.supabase
+        .from("form_submissions")
+        .select("*, form:forms(name), contact:contacts(id,name)")
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+    return { list: (forms ?? []) as FormRow[], recent };
+  });
 
-export default async function FormsPage() {
-  const s = await getSession();
-  const host = headers().get("host") ?? "localhost:3000";
-  const origin = `${host.startsWith("localhost") ? "http" : "https"}://${host}`;
-
-  const [{ data: forms }, { data: recent }] = await Promise.all([
-    s.supabase.from("forms").select("*").order("created_at", { ascending: false }),
-    s.supabase
-      .from("form_submissions")
-      .select("*, form:forms(name), contact:contacts(id,name)")
-      .order("created_at", { ascending: false })
-      .limit(20),
-  ]);
-
-  const list = (forms ?? []) as FormRow[];
+  if (!data) return <PageSkeleton />;
+  const { list, recent } = data;
 
   return (
     <>
@@ -50,7 +53,7 @@ export default async function FormsPage() {
             {list.map((f) => (
               <Link
                 key={f.id}
-                href={`/forms/${f.id}`}
+                href={formHref(f.id)}
                 className="panel px-5 py-4 text-ink-50 transition-colors hover:border-[rgba(250,197,28,0.35)] hover:text-ink-50"
               >
                 <div className="flex items-center gap-3">
@@ -64,7 +67,7 @@ export default async function FormsPage() {
                   <span className="tnum text-[11px] text-ink-400">{f.submissions} envíos</span>
                 </div>
                 <div className="mt-1.5 truncate pl-[20px] font-mono text-[11px] text-ink-400">
-                  {origin}/f/{f.slug}
+                  {formUrl(f.slug)}
                 </div>
                 <div className="mt-1 pl-[20px] text-[11.5px] text-ink-350">
                   {f.fields?.length ?? 0} campos
@@ -90,7 +93,7 @@ export default async function FormsPage() {
                     <div className="flex items-baseline gap-2">
                       <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">
                         {contact ? (
-                          <Link href={`/contacts/${contact.id}`}>{contact.name}</Link>
+                          <Link href={contactHref(contact.id)}>{contact.name}</Link>
                         ) : (
                           "Contacto borrado"
                         )}

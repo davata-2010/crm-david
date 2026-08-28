@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContact, updateContact, deleteContact } from "@/app/actions";
 import { STATUS, type ContactStatus } from "@/lib/constants";
 import type { Company, Contact, CustomField, Membership } from "@/lib/types";
+import { contactHref } from "@/lib/routes";
 
 const STATUSES: ContactStatus[] = ["lead", "prospect", "customer"];
 
@@ -45,7 +46,7 @@ export default function ContactForm({
         router.refresh();
         done();
       } else {
-        router.push(`/contacts/${(res as { id: string }).id}`);
+        router.push(contactHref((res as { id: string }).id));
       }
     });
   }

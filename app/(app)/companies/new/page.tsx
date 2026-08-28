@@ -1,7 +1,7 @@
+"use client";
+
 import PageHeader from "@/components/PageHeader";
 import CompanyForm from "@/components/CompanyForm";
-
-export const dynamic = "force-dynamic";
 
 export default function NewCompanyPage() {
   return (

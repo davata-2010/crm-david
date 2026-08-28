@@ -1,29 +1,33 @@
+"use client";
+
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import PageHeader from "@/components/PageHeader";
 import PipelineBoard from "@/components/PipelineBoard";
 import NewButton from "@/components/NewButton";
+import PageSkeleton from "@/components/PageSkeleton";
+import { useData } from "@/components/SessionGate";
 import type { Deal } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+export default function PipelinePage() {
+  const { data } = useData(async (s) => {
+    const { data } = await s.supabase
+      .from("deals")
+      .select("*, company:companies(id,name), contact:contacts(id,name)")
+      .is("deleted_at", null)
+      .order("value", { ascending: false });
+    return (data ?? []) as Deal[];
+  });
 
-export default async function PipelinePage() {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("deals")
-    .select("*, company:companies(id,name), contact:contacts(id,name)")
-    .is("deleted_at", null)
-    .order("value", { ascending: false });
+  if (!data) return <PageSkeleton />;
 
-  const deals = (data ?? []) as Deal[];
-  const open = deals.filter((d) => d.stage < 5).length;
+  const open = data.filter((d) => d.stage < 5).length;
 
   return (
     <>
       <PageHeader
         crumb="CRM"
         title="Pipeline"
-        subtitle={`${open} deals abiertos de ${deals.length} · arrastra o usa el clic derecho`}
+        subtitle={`${open} deals abiertos de ${data.length} · arrastra o usa el clic derecho`}
         action={
           <>
             <Link
@@ -37,7 +41,7 @@ export default async function PipelinePage() {
         }
       />
       <div className="min-h-0 flex-1 overflow-auto px-4 pb-12 pt-6 lg:px-9 lg:pt-8">
-        <PipelineBoard deals={deals} />
+        <PipelineBoard deals={data} />
       </div>
     </>
   );

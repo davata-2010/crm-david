@@ -130,7 +130,7 @@ function stepLabel(step: Step, index: number) {
 
 export function buildN8nWorkflow(
   workflow: WorkflowRow,
-  opts: { crmUrl: string; apiKey: string; webhookPath: string }
+  opts: { actionUrl: string; apiKey: string; webhookPath: string }
 ): N8nWorkflow {
   const trigger = TRIGGERS.find((t) => t.key === workflow.trigger);
   const entity = trigger?.entity ?? "contacts";
@@ -194,7 +194,7 @@ export function buildN8nWorkflow(
       nodes.push({
         parameters: {
           method: "POST",
-          url: `${opts.crmUrl}/api/automation/action`,
+          url: opts.actionUrl,
           sendHeaders: true,
           headerParameters: {
             parameters: [{ name: "X-Api-Key", value: opts.apiKey }],
@@ -238,7 +238,7 @@ export function buildN8nWorkflow(
  */
 export function buildN8nExportFile(
   workflow: WorkflowRow,
-  opts: { crmUrl: string; apiKey: string; webhookPath: string }
+  opts: { actionUrl: string; apiKey: string; webhookPath: string }
 ): N8nWorkflow {
   return {
     id: stableId(`${workflow.id}:workflow`).replace(/-/g, "").slice(0, 16),

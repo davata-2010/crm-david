@@ -1,20 +1,31 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+
 import PageHeader from "@/components/PageHeader";
 import ContactForm from "@/components/ContactForm";
+import PageSkeleton from "@/components/PageSkeleton";
+import QueryBoundary, { useQuery } from "@/components/QueryBoundary";
+import { useData } from "@/components/SessionGate";
 
-export const dynamic = "force-dynamic";
+export default function NewContactPage() {
+  return (
+    <QueryBoundary>
+      <NewContact />
+    </QueryBoundary>
+  );
+}
 
-export default async function NewContactPage({
-  searchParams,
-}: {
-  searchParams: { company?: string };
-}) {
-  const supabase = createClient();
-  const { data: companies } = await supabase
-    .from("companies")
-    .select("id, name")
-    .is("deleted_at", null)
-    .order("name");
+function NewContact() {
+  const q = useQuery();
+  const { data: companies } = useData(async (s) => {
+    const { data } = await s.supabase
+      .from("companies")
+      .select("id, name")
+      .is("deleted_at", null)
+      .order("name");
+    return data ?? [];
+  });
+
+  if (!companies) return <PageSkeleton />;
 
   return (
     <>
@@ -27,7 +38,7 @@ export default async function NewContactPage({
           <div className="mb-6 mt-1 text-[12.5px] text-ink-350">
             Los campos marcados con · son obligatorios.
           </div>
-          <ContactForm companies={companies ?? []} defaultCompanyId={searchParams.company} />
+          <ContactForm companies={companies} defaultCompanyId={q.get("company") ?? undefined} />
         </div>
       </div>
     </>

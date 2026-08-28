@@ -1,0 +1,25 @@
+project_id = "octfqtwkafqenktigevn"
+
+# Las cuatro primeras funciones las llaman desconocidos —un formulario en una
+# web, n8n, pg_cron— así que no pueden exigir un JWT de Supabase. Cada una se
+# protege por su cuenta: clave de workspace, slug activo o CRON_SECRET.
+
+[functions.leads]
+verify_jwt = false
+
+[functions.automation-action]
+verify_jwt = false
+
+[functions.form]
+verify_jwt = false
+
+[functions.form-submit]
+verify_jwt = false
+
+[functions.cron-workflows]
+verify_jwt = false
+
+# El asistente sí: usa la sesión de quien pregunta para no ver más de lo que
+# esa persona vería en pantalla.
+[functions.ai]
+verify_jwt = true

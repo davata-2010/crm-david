@@ -1,31 +1,46 @@
+"use client";
+
 import PageHeader from "@/components/PageHeader";
 import EntityWorkspace from "@/components/grid/EntityWorkspace";
 import NewButton from "@/components/NewButton";
-import { getSession } from "@/lib/workspace";
+import PageSkeleton from "@/components/PageSkeleton";
+import QueryBoundary, { useQuery } from "@/components/QueryBoundary";
+import { useData, useSession } from "@/components/SessionGate";
 import { queryEntity } from "@/lib/entity-query";
 import { companyFields, parseViewConfig } from "@/lib/fields";
 import type { SavedView } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+export default function CompaniesPage() {
+  return (
+    <QueryBoundary>
+      <Companies />
+    </QueryBoundary>
+  );
+}
 
-export default async function CompaniesPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
-}) {
-  const s = await getSession();
-  const cfg = parseViewConfig(searchParams);
+function Companies() {
+  const q = useQuery();
+  const cfg = parseViewConfig(Object.fromEntries(q.entries()));
+  const key = q.toString();
+  const s = useSession();
 
-  const { rows, total } = await queryEntity(s.supabase, "companies", cfg, {
-    field: "open_value",
-    dir: "desc",
-  });
+  const { data } = useData(async (s) => {
+    const { rows, total } = await queryEntity(s.supabase, "companies", cfg, {
+      field: "open_value",
+      dir: "desc",
+    });
 
-  const viewsRes = await s.supabase
-    .from("saved_views")
-    .select("*")
-    .eq("entity", "companies")
-    .order("created_at");
+    const viewsRes = await s.supabase
+      .from("saved_views")
+      .select("*")
+      .eq("entity", "companies")
+      .order("created_at");
+
+    return { rows, total, views: (viewsRes.data ?? []) as SavedView[] };
+  }, [key]);
+
+  if (!data) return <PageSkeleton />;
+  const { rows, total } = data;
 
   return (
     <>
@@ -45,7 +60,7 @@ export default async function CompaniesPage({
           companies={[]}
           members={s.members}
           tags={[]}
-          views={(viewsRes.data ?? []) as SavedView[]}
+          views={data.views}
           canWrite={s.canWrite}
           currentUserId={s.userId}
         />

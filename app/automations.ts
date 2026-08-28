@@ -1,19 +1,18 @@
-"use server";
+"use client";
 
-import { revalidatePath } from "next/cache";
-import { getSession } from "@/lib/workspace";
+import { notifyChanged, requireSession } from "@/lib/session-client";
 import type { Condition } from "@/lib/fields";
 import type { Step, TriggerKey } from "@/lib/workflows";
 
 type Result = { error?: string; id?: string };
 
 async function guard() {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.canWrite) throw new Error("Tu rol es de sólo lectura.");
   return s;
 }
 
-const revalidateAll = () => revalidatePath("/", "layout");
+const revalidateAll = () => notifyChanged(true);
 
 /* ==================================================== automatizaciones == */
 

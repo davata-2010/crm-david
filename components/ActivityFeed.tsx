@@ -9,6 +9,7 @@ import { ACTIVITY_KINDS, GOLD } from "@/lib/constants";
 import { timelineWhen } from "@/lib/format";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import type { Activity } from "@/lib/types";
+import { contactHref, dealHref } from "@/lib/routes";
 
 const RANGES: [string, number][] = [
   ["7 días", 7],
@@ -77,13 +78,13 @@ export default function ActivityFeed({ activities }: { activities: Activity[] })
         label: "Abrir contacto",
         icon: "◍",
         disabled: !a.contact_id,
-        onSelect: () => router.push(`/contacts/${a.contact_id}`),
+        onSelect: () => router.push(contactHref(a.contact_id)),
       },
       {
         label: "Abrir deal",
         icon: "▦",
         disabled: !a.deal_id,
-        onSelect: () => router.push(`/deals/${a.deal_id}`),
+        onSelect: () => router.push(dealHref(a.deal_id)),
       },
       {
         label: "Copiar contenido",
@@ -304,12 +305,12 @@ export default function ActivityFeed({ activities }: { activities: Activity[] })
                         </span>
                       )}
                       {a.contact && (
-                        <Link href={`/contacts/${a.contact.id}`} className="hover:text-gold">
+                        <Link href={contactHref(a.contact.id)} className="hover:text-gold">
                           ◍ {a.contact.name}
                         </Link>
                       )}
                       {a.deal && (
-                        <Link href={`/deals/${a.deal.id}`} className="hover:text-gold">
+                        <Link href={dealHref(a.deal.id)} className="hover:text-gold">
                           ▦ {a.deal.name}
                         </Link>
                       )}

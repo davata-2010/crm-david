@@ -1,9 +1,11 @@
-"use server";
+"use client";
 
-import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
-import { createClient } from "@/lib/supabase/server";
-import { getSession, WS_COOKIE } from "@/lib/workspace";
+import { createClient } from "@/lib/supabase/client";
+import {
+  notifyChanged,
+  requireSession,
+  setWantedWorkspace,
+} from "@/lib/session-client";
 import { STAGES, STAGE_PROBABILITY, type ContactStatus } from "@/lib/constants";
 import { initials } from "@/lib/format";
 import type { MemberRole } from "@/lib/types";
@@ -12,7 +14,7 @@ import { fireTrigger, type TriggerKey } from "@/lib/workflows";
 type Result = { error?: string; id?: string; count?: number; ok?: boolean };
 
 function revalidateAll() {
-  revalidatePath("/", "layout");
+  notifyChanged(true);
 }
 
 const num = (v: FormDataEntryValue | null) =>
@@ -37,7 +39,7 @@ function parseCustom(formData: FormData) {
 }
 
 async function guard() {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.canWrite) throw new Error("Tu rol es de sólo lectura.");
   return s;
 }
@@ -62,16 +64,16 @@ async function trigger(
 /* ============================================================ workspace */
 
 export async function switchWorkspace(workspaceId: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.workspaces.some((w) => w.id === workspaceId))
     return { error: "No perteneces a ese workspace." };
-  cookies().set(WS_COOKIE, workspaceId, { path: "/", maxAge: 60 * 60 * 24 * 365 });
+  setWantedWorkspace(workspaceId);
   revalidateAll();
   return { ok: true };
 }
 
 export async function renameWorkspace(name: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede renombrar el workspace." };
   const { error } = await s.supabase
     .from("workspaces")
@@ -83,7 +85,7 @@ export async function renameWorkspace(name: string): Promise<Result> {
 }
 
 export async function regenerateApiKey(): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede rotar la clave." };
   const key = "aur_live_" + crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().slice(0, 8);
   const { error } = await s.supabase
@@ -98,7 +100,7 @@ export async function regenerateApiKey(): Promise<Result> {
 /* =============================================================== equipo */
 
 export async function inviteMember(email: string, role: MemberRole): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede invitar." };
   const clean = email.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return { error: "Email no válido." };
@@ -119,7 +121,7 @@ export async function inviteMember(email: string, role: MemberRole): Promise<Res
 }
 
 export async function revokeInvitation(id: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede revocar invitaciones." };
   const { error } = await s.supabase.from("invitations").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -128,7 +130,7 @@ export async function revokeInvitation(id: string): Promise<Result> {
 }
 
 export async function changeMemberRole(userId: string, role: MemberRole): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede cambiar roles." };
   if (userId === s.userId) return { error: "No puedes cambiar tu propio rol." };
   const { error } = await s.supabase
@@ -142,7 +144,7 @@ export async function changeMemberRole(userId: string, role: MemberRole): Promis
 }
 
 export async function removeMember(userId: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede quitar miembros." };
   if (userId === s.userId) return { error: "No puedes quitarte a ti mismo." };
   const { error } = await s.supabase
@@ -179,7 +181,7 @@ export async function acceptInvitation(token: string): Promise<Result> {
   if (error && !error.message.includes("duplicate")) return { error: error.message };
 
   await supabase.from("invitations").update({ accepted_at: new Date().toISOString() }).eq("id", inv.id);
-  cookies().set(WS_COOKIE, inv.workspace_id, { path: "/", maxAge: 60 * 60 * 24 * 365 });
+  setWantedWorkspace(inv.workspace_id);
   revalidateAll();
   return { ok: true };
 }
@@ -777,7 +779,7 @@ export async function deleteView(id: string): Promise<Result> {
 /* ==================================================== campos personalizados */
 
 export async function createCustomField(formData: FormData): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede crear campos." };
   const label = str(formData.get("label"));
   if (!label) return { error: "El campo necesita un nombre." };
@@ -806,7 +808,7 @@ export async function createCustomField(formData: FormData): Promise<Result> {
 }
 
 export async function deleteCustomField(id: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede borrar campos." };
   const { error } = await s.supabase.from("custom_fields").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -852,7 +854,7 @@ export async function deleteAttachment(id: string, path: string): Promise<Result
 /* ================================================================== perfil */
 
 export async function updateProfile(formData: FormData): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   const prefs = {
     digest: formData.get("digest") === "on",
     mentions: formData.get("mentions") === "on",
@@ -873,7 +875,7 @@ export async function updateProfile(formData: FormData): Promise<Result> {
 }
 
 export async function wipeWorkspace(): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) return { error: "Sólo un administrador puede vaciar el workspace." };
   for (const table of ["activities", "deals", "contacts", "companies"]) {
     const { error } = await s.supabase

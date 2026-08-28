@@ -6,6 +6,7 @@ import { useChrome, type MenuItem } from "@/components/AppChrome";
 import { deleteDeal, duplicateDeal, moveDealStage } from "@/app/actions";
 import { LOST, LOST_REASONS, STAGES } from "@/lib/constants";
 import type { Deal } from "@/lib/types";
+import { dealHref } from "@/lib/routes";
 
 export default function DealActions({ deal }: { deal: Deal }) {
   const router = useRouter();
@@ -60,13 +61,13 @@ export default function DealActions({ deal }: { deal: Deal }) {
 
   const items: MenuItem[] = [
     { kind: "label", label: deal.name },
-    { label: "Editar", icon: "✎", onSelect: () => router.push(`/deals/${deal.id}?edit=1`) },
+    { label: "Editar", icon: "✎", onSelect: () => router.push(`${dealHref(deal.id)}&edit=1`) },
     {
       label: "Duplicar",
       icon: "⧉",
       onSelect: () => run(() => duplicateDeal(deal.id), "Deal duplicado."),
     },
-    { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/deals/${deal.id}?task=1`) },
+    { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`${dealHref(deal.id)}&task=1`) },
     { kind: "separator" },
     { kind: "label", label: "Mover a etapa" },
     ...STAGES.map((label, i) => ({

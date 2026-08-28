@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
+import PageSkeleton from "@/components/PageSkeleton";
 import { NewWorkflowButton } from "@/components/NewWorkflowButton";
-import { getSession } from "@/lib/workspace";
+import { useData, useSession } from "@/components/SessionGate";
 import { GOLD } from "@/lib/constants";
 import { relative } from "@/lib/format";
 import { TRIGGERS, type RunRow, type WorkflowRow } from "@/lib/workflows";
+import { workflowHref } from "@/lib/routes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,19 +26,25 @@ const STATUS_LABEL: Record<string, string> = {
   error: "error",
 };
 
-export default async function AutomationsPage() {
-  const s = await getSession();
-  const [{ data: flows }, { data: runs }] = await Promise.all([
-    s.supabase.from("workflows").select("*").order("created_at", { ascending: false }),
-    s.supabase
-      .from("workflow_runs")
-      .select("*, workflow:workflows(name)")
-      .order("created_at", { ascending: false })
-      .limit(30),
-  ]);
+export default function AutomationsPage() {
+  const s = useSession();
+  const { data } = useData(async (s) => {
+    const [{ data: flows }, { data: runs }] = await Promise.all([
+      s.supabase.from("workflows").select("*").order("created_at", { ascending: false }),
+      s.supabase
+        .from("workflow_runs")
+        .select("*, workflow:workflows(name)")
+        .order("created_at", { ascending: false })
+        .limit(30),
+    ]);
+    return {
+      list: (flows ?? []) as WorkflowRow[],
+      history: (runs ?? []) as (RunRow & { workflow: { name: string } | null })[],
+    };
+  });
 
-  const list = (flows ?? []) as WorkflowRow[];
-  const history = (runs ?? []) as (RunRow & { workflow: { name: string } | null })[];
+  if (!data) return <PageSkeleton />;
+  const { list, history } = data;
 
   return (
     <>
@@ -64,7 +74,7 @@ export default async function AutomationsPage() {
               return (
                 <Link
                   key={f.id}
-                  href={`/automations/${f.id}`}
+                  href={workflowHref(f.id)}
                   className="panel px-5 py-4 text-ink-50 transition-colors hover:border-[rgba(250,197,28,0.35)] hover:text-ink-50"
                 >
                   <div className="flex items-center gap-3">

@@ -13,6 +13,7 @@ import {
 } from "@/app/actions";
 import { ACTIVITY_KINDS, GOLD } from "@/lib/constants";
 import type { Activity, Contact, Deal } from "@/lib/types";
+import { contactHref, dealHref } from "@/lib/routes";
 
 type Groups = {
   overdue: Activity[];
@@ -79,13 +80,13 @@ export default function TaskList({
         label: "Abrir contacto",
         icon: "◍",
         disabled: !t.contact_id,
-        onSelect: () => router.push(`/contacts/${t.contact_id}`),
+        onSelect: () => router.push(contactHref(t.contact_id)),
       },
       {
         label: "Abrir deal",
         icon: "▦",
         disabled: !t.deal_id,
-        onSelect: () => router.push(`/deals/${t.deal_id}`),
+        onSelect: () => router.push(dealHref(t.deal_id)),
       },
       {
         label: "Copiar título",
@@ -316,7 +317,7 @@ export default function TaskList({
                           </span>
                           {t.contact && (
                             <Link
-                              href={`/contacts/${t.contact.id}`}
+                              href={contactHref(t.contact.id)}
                               onClick={(e) => e.stopPropagation()}
                               className="truncate text-ink-350 hover:text-gold"
                             >
@@ -325,7 +326,7 @@ export default function TaskList({
                           )}
                           {t.deal && (
                             <Link
-                              href={`/deals/${t.deal.id}`}
+                              href={dealHref(t.deal.id)}
                               onClick={(e) => e.stopPropagation()}
                               className="truncate text-ink-350 hover:text-gold"
                             >

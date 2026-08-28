@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useChrome } from "@/components/AppChrome";
 import { createCompany, updateCompany, deleteCompany } from "@/app/actions";
 import type { Company } from "@/lib/types";
+import { companyHref } from "@/lib/routes";
 
 const SIZES = ["1-10", "11-50", "51-200", "201-1000", "1000+"];
 
@@ -34,7 +35,7 @@ export default function CompanyForm({ company }: { company?: Company }) {
             router.replace(pathname);
             router.refresh();
           } else {
-            router.push(`/companies/${(res as { id: string }).id}`);
+            router.push(companyHref((res as { id: string }).id));
           }
         });
       }}

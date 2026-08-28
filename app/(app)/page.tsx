@@ -1,56 +1,65 @@
+"use client";
+
 import Link from "next/link";
-import { getSession } from "@/lib/workspace";
 import PageHeader from "@/components/PageHeader";
 import EmptyWorkspace from "@/components/EmptyWorkspace";
+import PageSkeleton from "@/components/PageSkeleton";
+import { useData, useSession } from "@/components/SessionGate";
 import { buildDashboard, needsAttention, splitTasks } from "@/lib/metrics";
 import { eur, initials, monthLabel } from "@/lib/format";
 import { GOLD, STAGES } from "@/lib/constants";
 import type { Activity, Deal } from "@/lib/types";
+import { contactHref, dealHref } from "@/lib/routes";
 
-export const dynamic = "force-dynamic";
-
-export default async function DashboardPage() {
-  const s = await getSession();
-  const { supabase, counts } = s;
+export default function DashboardPage() {
+  const s = useSession();
+  const { counts } = s;
 
   // Sólo lo necesario: los deals completos (son pocos y alimentan todas las
   // métricas), las actividades del último año reducidas a dos columnas para
   // las barras y el aviso de silencio, y las tareas abiertas por separado.
   const yearAgo = new Date(Date.now() - 370 * 86_400_000).toISOString();
 
-  const [{ data: dealsData }, { data: liteData }, { data: taskData }, { data: upcomingData }] =
-    await Promise.all([
-      supabase
-        .from("deals")
-        .select("*, company:companies(id,name), contact:contacts(id,name)")
-        .is("deleted_at", null),
-      supabase
-        .from("activities")
-        .select("deal_id, occurred_at")
-        .is("deleted_at", null)
-        .gte("occurred_at", yearAgo),
-      supabase
-        .from("activities")
-        .select("*, contact:contacts(id,name), deal:deals(id,name)")
-        .is("deleted_at", null)
-        .not("due_date", "is", null)
-        .eq("completed", false)
-        .order("due_date", { ascending: true })
-        .limit(50),
-      supabase
-        .from("activities")
-        .select("*, contact:contacts(id,name), deal:deals(id,name)")
-        .is("deleted_at", null)
-        .is("due_date", null)
-        .gte("occurred_at", new Date(Date.now() - 3_600_000).toISOString())
-        .order("occurred_at", { ascending: true })
-        .limit(4),
-    ]);
+  const { data: loaded } = useData(async ({ supabase }) => {
+    const [{ data: dealsData }, { data: liteData }, { data: taskData }, { data: upcomingData }] =
+      await Promise.all([
+        supabase
+          .from("deals")
+          .select("*, company:companies(id,name), contact:contacts(id,name)")
+          .is("deleted_at", null),
+        supabase
+          .from("activities")
+          .select("deal_id, occurred_at")
+          .is("deleted_at", null)
+          .gte("occurred_at", yearAgo),
+        supabase
+          .from("activities")
+          .select("*, contact:contacts(id,name), deal:deals(id,name)")
+          .is("deleted_at", null)
+          .not("due_date", "is", null)
+          .eq("completed", false)
+          .order("due_date", { ascending: true })
+          .limit(50),
+        supabase
+          .from("activities")
+          .select("*, contact:contacts(id,name), deal:deals(id,name)")
+          .is("deleted_at", null)
+          .is("due_date", null)
+          .gte("occurred_at", new Date(Date.now() - 3_600_000).toISOString())
+          .order("occurred_at", { ascending: true })
+          .limit(4),
+      ]);
 
-  const deals = (dealsData ?? []) as Deal[];
-  const lite = (liteData ?? []) as Pick<Activity, "deal_id" | "occurred_at">[];
-  const pendingTasks = (taskData ?? []) as Activity[];
-  const upcoming = (upcomingData ?? []) as Activity[];
+    return {
+      deals: (dealsData ?? []) as Deal[],
+      lite: (liteData ?? []) as Pick<Activity, "deal_id" | "occurred_at">[],
+      pendingTasks: (taskData ?? []) as Activity[],
+      upcoming: (upcomingData ?? []) as Activity[],
+    };
+  });
+
+  if (!loaded) return <PageSkeleton />;
+  const { deals, lite, pendingTasks, upcoming } = loaded;
 
   if (deals.length === 0 && counts.activities === 0) {
     return (
@@ -167,7 +176,7 @@ export default async function DashboardPage() {
                 return (
                   <Link
                     key={t.id}
-                    href={t.contact_id ? `/contacts/${t.contact_id}` : "/tasks"}
+                    href={t.contact_id ? contactHref(t.contact_id) : "/tasks"}
                     className="hair-t flex gap-[13px] py-[11px] text-ink-50 hover:text-ink-50"
                   >
                     <div className="w-10 flex-[0_0_40px] text-center">
@@ -243,7 +252,7 @@ export default async function DashboardPage() {
               {attention.map(({ deal, reason }) => (
                 <Link
                   key={deal.id}
-                  href={`/deals/${deal.id}`}
+                  href={dealHref(deal.id)}
                   className="hair-t flex items-center gap-4 px-1 py-3.5 text-ink-50 transition-colors hover:bg-ink-870 hover:text-ink-50"
                 >
                   <div className="grid h-[30px] w-[30px] flex-[0_0_30px] place-items-center rounded-lg bg-ink-800 text-[11px] font-semibold text-gold">

@@ -29,6 +29,7 @@ import { downloadCsv, mapContactRow, parseCsv, toCsv } from "@/lib/csv";
 import { memberName } from "@/lib/workspace-client";
 import { ENTITY_SOURCE, type EntityKey, type FieldDef, type ViewConfig } from "@/lib/fields";
 import type { Company, Membership, SavedView } from "@/lib/types";
+import { contactHref, dealHref } from "@/lib/routes";
 
 const LABEL: Record<EntityKey, { one: string; many: string; create: string }> = {
   contacts: { one: "contacto", many: "contactos", create: "Escribe un nombre y pulsa Intro para crear un contacto…" },
@@ -333,7 +334,7 @@ export default function EntityWorkspace({
           onSelect: () => (window.location.href = `mailto:${row.email}`),
         },
         { label: "Crear deal", icon: "＋", onSelect: () => router.push(`/deals/new?contact=${row.id}`) },
-        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/contacts/${row.id}?task=1`) },
+        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`${contactHref(row.id)}&task=1`) },
         { kind: "separator" },
         { kind: "label", label: "Cambiar estado" },
         ...CONTACT_STATUSES.map((s) => ({
@@ -351,9 +352,9 @@ export default function EntityWorkspace({
           label: "Abrir contacto",
           icon: "◍",
           disabled: !row.contact_id,
-          onSelect: () => router.push(`/contacts/${row.contact_id}`),
+          onSelect: () => router.push(contactHref(row.contact_id as string)),
         },
-        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`/deals/${row.id}?task=1`) },
+        { label: "Añadir tarea", icon: "✓", onSelect: () => router.push(`${dealHref(row.id)}&task=1`) },
         { kind: "separator" },
         { kind: "label", label: "Mover a etapa" },
         ...STAGES.map((label, i) => ({

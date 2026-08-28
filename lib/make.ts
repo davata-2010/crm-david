@@ -91,7 +91,7 @@ function payload(step: Step, entity: "contacts" | "deals") {
 
 export function buildMakeBlueprint(
   workflow: WorkflowRow,
-  opts: { crmUrl: string; apiKey: string }
+  opts: { actionUrl: string; apiKey: string }
 ): MakeBlueprint {
   const trigger = TRIGGERS.find((t) => t.key === workflow.trigger);
   const entity = trigger?.entity ?? "contacts";
@@ -131,7 +131,7 @@ export function buildMakeBlueprint(
     }
 
     const url =
-      step.type === "webhook" ? step.url : `${opts.crmUrl}/api/automation/action`;
+      step.type === "webhook" ? step.url : opts.actionUrl;
     const body =
       step.type === "webhook"
         ? { record: "{{1.record}}" }

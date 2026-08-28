@@ -6,6 +6,7 @@ import { useChrome } from "@/components/AppChrome";
 import { saveIntegration, testIntegration } from "@/app/integrations";
 import { GOLD } from "@/lib/constants";
 import { relative } from "@/lib/format";
+import { ACTION_URL } from "@/lib/config";
 
 export type Integration = {
   id: string;
@@ -30,11 +31,9 @@ const EMPTY = {
 export default function IntegrationsSettings({
   n8n,
   make,
-  origin,
 }: {
   n8n: Integration | null;
   make: Integration | null;
-  origin: string;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -72,7 +71,7 @@ export default function IntegrationsSettings({
           </li>
           <li>
             El workflow ejecuta los pasos llamando a{" "}
-            <code className="font-mono text-ink-350">{origin}/api/automation/action</code>{" "}
+            <code className="font-mono text-ink-350">{ACTION_URL}</code>{" "}
             con la clave de API del workspace.
           </li>
           <li>

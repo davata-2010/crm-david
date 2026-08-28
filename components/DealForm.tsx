@@ -6,6 +6,7 @@ import { createDeal, updateDeal, deleteDeal } from "@/app/actions";
 import { GOLD, LOST, LOST_REASONS, PROJECT_TYPES, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, shortDate } from "@/lib/format";
 import type { Company, Contact, CustomField, Deal, Membership } from "@/lib/types";
+import { dealHref } from "@/lib/routes";
 
 type Opt = Pick<Company, "id" | "name">;
 
@@ -88,7 +89,7 @@ export default function DealForm({
         setStatus("Cambios guardados.");
         router.refresh();
       } else {
-        router.push(`/deals/${(res as { id: string }).id}`);
+        router.push(dealHref((res as { id: string }).id));
       }
     });
   }

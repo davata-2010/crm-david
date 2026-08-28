@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useChrome } from "@/components/AppChrome";
 import { GOLD } from "@/lib/constants";
+import { createClient } from "@/lib/supabase/client";
+import { AI_URL } from "@/lib/config";
 
 type Action = "resumen" | "email" | "score";
 
@@ -29,9 +31,21 @@ export default function AiPanel({
     setError(null);
     setResult(null);
     try {
-      const res = await fetch("/api/ai", {
+      // El asistente vive en Supabase: la clave de Anthropic no puede viajar
+      // dentro de un instalador. Se le manda la sesión para que las RLS
+      // sigan aplicando sobre lo que lee.
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      const res = await fetch(AI_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        },
         body: JSON.stringify({ action, contactId, dealId }),
       });
       const data = await res.json();

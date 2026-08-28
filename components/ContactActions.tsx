@@ -10,6 +10,7 @@ import {
 } from "@/app/actions";
 import { CONTACT_STATUSES, STATUS } from "@/lib/constants";
 import type { Contact } from "@/lib/types";
+import { contactHref } from "@/lib/routes";
 
 export default function ContactActions({ contact }: { contact: Contact }) {
   const router = useRouter();
@@ -29,7 +30,7 @@ export default function ContactActions({ contact }: { contact: Contact }) {
 
   const items: MenuItem[] = [
     { kind: "label", label: contact.name },
-    { label: "Editar", icon: "✎", onSelect: () => router.push(`/contacts/${contact.id}?edit=1`) },
+    { label: "Editar", icon: "✎", onSelect: () => router.push(`${contactHref(contact.id)}&edit=1`) },
     {
       label: "Duplicar",
       icon: "⧉",
@@ -43,7 +44,7 @@ export default function ContactActions({ contact }: { contact: Contact }) {
     {
       label: "Añadir tarea",
       icon: "✓",
-      onSelect: () => router.push(`/contacts/${contact.id}?task=1`),
+      onSelect: () => router.push(`${contactHref(contact.id)}&task=1`),
     },
     { kind: "separator" },
     {

@@ -13,6 +13,7 @@ import {
 import { GOLD } from "@/lib/constants";
 import { initials, relative } from "@/lib/format";
 import type { Invitation, MemberRole, Membership, Workspace } from "@/lib/types";
+import { inviteHref } from "@/lib/routes";
 
 const ROLES: { key: MemberRole; label: string; desc: string }[] = [
   { key: "owner", label: "Propietario", desc: "Control total, incluida la facturación" },
@@ -156,7 +157,7 @@ export default function TeamSettings({
                   const res = await inviteMember(email, role);
                   if (res?.error) toast(res.error, "error");
                   else {
-                    const link = `${location.origin}/invite/${res.id}`;
+                    const link = `${location.origin}${inviteHref(res.id as string)}`;
                     await navigator.clipboard.writeText(link).catch(() => {});
                     toast("Invitación creada y enlace copiado.");
                     setEmail("");
@@ -197,7 +198,7 @@ export default function TeamSettings({
                 </div>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(`${location.origin}/invite/${i.token}`);
+                    navigator.clipboard.writeText(`${location.origin}${inviteHref(i.token)}`);
                     toast("Enlace copiado.");
                   }}
                   className="rounded-[8px] border border-[rgba(245,245,245,0.12)] px-3 py-1 text-[11.5px] text-ink-150 transition-colors hover:border-gold hover:text-gold"

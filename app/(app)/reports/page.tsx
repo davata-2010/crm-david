@@ -1,27 +1,31 @@
+"use client";
+
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import PageHeader from "@/components/PageHeader";
+import PageSkeleton from "@/components/PageSkeleton";
+import { useData } from "@/components/SessionGate";
 import { buildReports } from "@/lib/metrics";
 import { eur, eurCompact } from "@/lib/format";
 import { GOLD } from "@/lib/constants";
 import type { Activity, Company, Deal } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+export default function ReportsPage() {
+  const { data } = useData(async (s) => {
+    const [{ data: deals }, { data: activities }, { data: companies }] = await Promise.all([
+      s.supabase.from("deals").select("*, company:companies(id,name)").is("deleted_at", null),
+      s.supabase.from("activities").select("*").is("deleted_at", null),
+      s.supabase.from("companies").select("*").is("deleted_at", null),
+    ]);
+    return buildReports(
+      (deals ?? []) as Deal[],
+      (activities ?? []) as Activity[],
+      (companies ?? []) as Company[]
+    );
+  });
 
-export default async function ReportsPage() {
-  const supabase = createClient();
+  if (!data) return <PageSkeleton />;
 
-  const [{ data: deals }, { data: activities }, { data: companies }] = await Promise.all([
-    supabase.from("deals").select("*, company:companies(id,name)").is("deleted_at", null),
-    supabase.from("activities").select("*").is("deleted_at", null),
-    supabase.from("companies").select("*").is("deleted_at", null),
-  ]);
-
-  const r = buildReports(
-    (deals ?? []) as Deal[],
-    (activities ?? []) as Activity[],
-    (companies ?? []) as Company[]
-  );
+  const r = data;
   const t = r.totals;
 
   const cards = [

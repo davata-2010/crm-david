@@ -1,18 +1,19 @@
+"use client";
+
 import Link from "next/link";
-import { headers } from "next/headers";
 import PageHeader from "@/components/PageHeader";
+import PageSkeleton from "@/components/PageSkeleton";
+import QueryBoundary, { useQuery } from "@/components/QueryBoundary";
+import { useData, useSession } from "@/components/SessionGate";
 import ProfileForm from "@/components/ProfileForm";
 import DataSettings from "@/components/DataSettings";
 import InstallApp from "@/components/InstallApp";
 import TeamSettings from "@/components/TeamSettings";
 import { ApiSettings, FieldsSettings } from "@/components/ApiSettings";
 import IntegrationsSettings, { type Integration } from "@/components/IntegrationsSettings";
-import { getSession } from "@/lib/workspace";
 import { GOLD, STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { eur, relative } from "@/lib/format";
 import type { AuditEntry, CustomField, Deal, Invitation } from "@/lib/types";
-
-export const dynamic = "force-dynamic";
 
 const TABS: [string, string][] = [
   ["profile", "Perfil"],
@@ -40,66 +41,90 @@ const ENTITY_LABEL: Record<string, string> = {
   companies: "la empresa",
 };
 
-export default async function SettingsPage({
-  searchParams,
-}: {
-  searchParams: { tab?: string };
-}) {
-  const s = await getSession();
-  const { supabase, workspace, members, isAdmin } = s;
-  const tab = searchParams.tab || "profile";
+export default function SettingsPage() {
+  return (
+    <QueryBoundary>
+      <Settings />
+    </QueryBoundary>
+  );
+}
 
-  const host = headers().get("host") ?? "localhost:3000";
-  const proto = host.startsWith("localhost") ? "http" : "https";
-  const origin = `${proto}://${host}`;
+function Settings() {
+  const tab = useQuery().get("tab") || "profile";
+  const s = useSession();
+  const { workspace, members, isAdmin } = s;
 
   // Cada pestaña pide sólo lo suyo: entrar en Ajustes no debe costar
   // siete consultas cuando se ven los datos de una.
-  const needsDeals = tab === "pipeline" || tab === "data";
-  const needsCounts = tab === "data";
+  const { data: loaded } = useData(
+    async ({ supabase }) => {
+      const needsDeals = tab === "pipeline" || tab === "data";
+      const needsCounts = tab === "data";
 
-  const [dealsRes, invitationsRes, fieldsRes, integrationsRes, auditRes, countsRes] = await Promise.all([
-    needsDeals
-      ? supabase.from("deals").select("id, stage, value").is("deleted_at", null)
-      : Promise.resolve({ data: [] }),
-    tab === "team"
-      ? supabase.from("invitations").select("*").order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] }),
-    tab === "fields"
-      ? supabase.from("custom_fields").select("*").order("created_at", { ascending: true })
-      : Promise.resolve({ data: [] }),
-    tab === "integrations"
-      ? supabase.from("integrations").select("*")
-      : Promise.resolve({ data: [] }),
-    tab === "audit"
-      ? supabase
-          .from("audit_log")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(120)
-      : Promise.resolve({ data: [] }),
-    needsCounts
-      ? Promise.all([
-          supabase.from("contacts").select("id", { count: "exact", head: true }).is("deleted_at", null),
-          supabase.from("companies").select("id", { count: "exact", head: true }).is("deleted_at", null),
-          supabase.from("activities").select("id", { count: "exact", head: true }).is("deleted_at", null),
-        ])
-      : Promise.resolve(null),
-  ]);
+      const [dealsRes, invitationsRes, fieldsRes, integrationsRes, auditRes, countsRes] =
+        await Promise.all([
+          needsDeals
+            ? supabase.from("deals").select("id, stage, value").is("deleted_at", null)
+            : Promise.resolve({ data: [] }),
+          tab === "team"
+            ? supabase.from("invitations").select("*").order("created_at", { ascending: false })
+            : Promise.resolve({ data: [] }),
+          tab === "fields"
+            ? supabase.from("custom_fields").select("*").order("created_at", { ascending: true })
+            : Promise.resolve({ data: [] }),
+          tab === "integrations"
+            ? supabase.from("integrations").select("*")
+            : Promise.resolve({ data: [] }),
+          tab === "audit"
+            ? supabase
+                .from("audit_log")
+                .select("*")
+                .order("created_at", { ascending: false })
+                .limit(120)
+            : Promise.resolve({ data: [] }),
+          needsCounts
+            ? Promise.all([
+                supabase
+                  .from("contacts")
+                  .select("id", { count: "exact", head: true })
+                  .is("deleted_at", null),
+                supabase
+                  .from("companies")
+                  .select("id", { count: "exact", head: true })
+                  .is("deleted_at", null),
+                supabase
+                  .from("activities")
+                  .select("id", { count: "exact", head: true })
+                  .is("deleted_at", null),
+              ])
+            : Promise.resolve(null),
+        ]);
 
-  const dealsData = dealsRes.data;
-  const invitations = invitationsRes.data;
-  const fields = fieldsRes.data;
-  const audit = auditRes.data;
-  const integrations = (integrationsRes.data ?? []) as Integration[];
-  const [contactCount, companyCount, activityCount] = countsRes ?? [
-    { count: 0 },
-    { count: 0 },
-    { count: 0 },
-  ];
+      const [contactCount, companyCount, activityCount] = countsRes ?? [
+        { count: 0 },
+        { count: 0 },
+        { count: 0 },
+      ];
 
-  const deals = (dealsData ?? []) as Deal[];
-  const entries = (audit ?? []) as AuditEntry[];
+      return {
+        deals: (dealsRes.data ?? []) as Deal[],
+        invitations: invitationsRes.data,
+        fields: fieldsRes.data,
+        entries: (auditRes.data ?? []) as AuditEntry[],
+        integrations: (integrationsRes.data ?? []) as Integration[],
+        counts: {
+          Contactos: contactCount.count ?? 0,
+          Empresas: companyCount.count ?? 0,
+          Deals: (dealsRes.data ?? []).length,
+          Actividades: activityCount.count ?? 0,
+        },
+      };
+    },
+    [tab]
+  );
+
+  if (!loaded) return <PageSkeleton />;
+  const { deals, invitations, fields, entries, integrations } = loaded;
 
   return (
     <>
@@ -184,14 +209,13 @@ export default async function SettingsPage({
             )}
 
             {tab === "api" && (
-              <ApiSettings workspace={workspace} isAdmin={isAdmin} origin={origin} />
+              <ApiSettings workspace={workspace} isAdmin={isAdmin} />
             )}
 
             {tab === "integrations" && (
               <IntegrationsSettings
                 n8n={integrations.find((i) => i.provider === "n8n") ?? null}
                 make={integrations.find((i) => i.provider === "make") ?? null}
-                origin={origin}
               />
             )}
 
@@ -256,12 +280,7 @@ export default async function SettingsPage({
 
             {tab === "data" && (
               <DataSettings
-                counts={{
-                  Contactos: contactCount.count ?? 0,
-                  Empresas: companyCount.count ?? 0,
-                  Deals: deals.length,
-                  Actividades: activityCount.count ?? 0,
-                }}
+                counts={loaded.counts}
                 isAdmin={isAdmin}
               />
             )}

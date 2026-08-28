@@ -1,8 +1,6 @@
-"use server";
+"use client";
 
-import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
-import { getSession } from "@/lib/workspace";
+import { notifyChanged, requireSession } from "@/lib/session-client";
 import {
   buildN8nExportFile,
   buildN8nWorkflow,
@@ -12,22 +10,18 @@ import {
   n8nWebhookUrl,
 } from "@/lib/n8n";
 import { buildMakeBlueprint } from "@/lib/make";
+import { ACTION_URL } from "@/lib/config";
 import type { WorkflowRow } from "@/lib/workflows";
 
 type Result = { error?: string; ok?: boolean; info?: string };
 
 async function admin() {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.isAdmin) throw new Error("Sólo un administrador puede tocar las integraciones.");
   return s;
 }
 
-const revalidateAll = () => revalidatePath("/", "layout");
-
-function crmUrl() {
-  const host = headers().get("host") ?? "localhost:3000";
-  return `${host.startsWith("localhost") ? "http" : "https"}://${host}`;
-}
+const revalidateAll = () => notifyChanged(true);
 
 /* ========================================================= integraciones == */
 
@@ -99,7 +93,7 @@ export async function testIntegration(provider: "n8n" | "make"): Promise<Result>
 
 /** Crea o actualiza el workflow en n8n y guarda el enlace en Aurum. */
 export async function syncWorkflowToN8n(workflowId: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.canWrite) return { error: "Tu rol es de sólo lectura." };
 
   const [{ data: flow }, { data: cfg }] = await Promise.all([
@@ -116,7 +110,7 @@ export async function syncWorkflowToN8n(workflowId: string): Promise<Result> {
   const workflow = flow as WorkflowRow;
   const path = `aurum-${workflow.id}`;
   const body = buildN8nWorkflow(workflow, {
-    crmUrl: crmUrl(),
+    actionUrl: ACTION_URL,
     apiKey: s.workspace.api_key,
     webhookPath: path,
   });
@@ -158,7 +152,7 @@ export async function syncWorkflowToN8n(workflowId: string): Promise<Result> {
 
 /** Vuelve a ejecutar los pasos dentro de Aurum. */
 export async function useAurumEngine(workflowId: string): Promise<Result> {
-  const s = await getSession();
+  const s = await requireSession();
   if (!s.canWrite) return { error: "Tu rol es de sólo lectura." };
   const { error } = await s.supabase
     .from("workflows")
@@ -176,7 +170,7 @@ export async function exportWorkflow(
   workflowId: string,
   target: "n8n" | "make"
 ): Promise<{ error?: string; filename?: string; json?: string }> {
-  const s = await getSession();
+  const s = await requireSession();
   const { data: flow } = await s.supabase
     .from("workflows")
     .select("*")
@@ -196,11 +190,11 @@ export async function exportWorkflow(
   const body =
     target === "n8n"
       ? buildN8nExportFile(workflow, {
-          crmUrl: crmUrl(),
+          actionUrl: ACTION_URL,
           apiKey: s.workspace.api_key,
           webhookPath: `aurum-${workflow.id}`,
         })
-      : buildMakeBlueprint(workflow, { crmUrl: crmUrl(), apiKey: s.workspace.api_key });
+      : buildMakeBlueprint(workflow, { actionUrl: ACTION_URL, apiKey: s.workspace.api_key });
 
   return {
     filename: `${slug}-${target}.json`,

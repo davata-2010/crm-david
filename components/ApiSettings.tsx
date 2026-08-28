@@ -9,6 +9,7 @@ import {
   regenerateApiKey,
 } from "@/app/actions";
 import type { CustomField, Workspace } from "@/lib/types";
+import { LEADS_URL } from "@/lib/config";
 
 const TYPES: { key: CustomField["type"]; label: string }[] = [
   { key: "text", label: "Texto" },
@@ -149,11 +150,9 @@ export function FieldsSettings({
 export function ApiSettings({
   workspace,
   isAdmin,
-  origin,
 }: {
   workspace: Workspace;
   isAdmin: boolean;
-  origin: string;
 }) {
   const router = useRouter();
   const { confirm, toast } = useChrome();
@@ -162,7 +161,7 @@ export function ApiSettings({
 
   const masked = workspace.api_key.slice(0, 13) + "·".repeat(18) + workspace.api_key.slice(-4);
 
-  const snippet = `curl -X POST ${origin}/api/leads \\
+  const snippet = `curl -X POST ${LEADS_URL} \\
   -H "Content-Type: application/json" \\
   -H "X-Api-Key: ${shown ? workspace.api_key : "TU_CLAVE"}" \\
   -d '{
@@ -234,7 +233,7 @@ export function ApiSettings({
       <div className="panel p-[26px]">
         <div className="text-[15px] font-semibold tracking-[-0.01em]">Captación de leads</div>
         <div className="mt-1 text-[12.5px] text-ink-350">
-          <code className="font-mono text-ink-150">POST {origin}/api/leads</code> — crea el
+          <code className="font-mono text-ink-150">POST {LEADS_URL}</code> — crea el
           contacto, la empresa si no existe, y registra la primera actividad. Si el email ya
           existe no duplica: añade una actividad al contacto que ya tienes.
         </div>

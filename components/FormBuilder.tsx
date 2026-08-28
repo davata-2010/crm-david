@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChrome } from "@/components/AppChrome";
 import { saveForm, deleteForm } from "@/app/automations";
 import { GOLD } from "@/lib/constants";
+import { formUrl } from "@/lib/config";
 
 export type FormField = {
   key: string;
@@ -37,7 +38,7 @@ const BUILTIN: { key: string; label: string; type: FormField["type"] }[] = [
   { key: "message", label: "Mensaje", type: "textarea" },
 ];
 
-export default function FormBuilder({ form, origin }: { form: FormRow; origin: string }) {
+export default function FormBuilder({ form }: { form: FormRow }) {
   const router = useRouter();
   const { confirm, toast } = useChrome();
   const [, start] = useTransition();
@@ -46,7 +47,7 @@ export default function FormBuilder({ form, origin }: { form: FormRow; origin: s
   const set = <K extends keyof FormRow>(k: K, v: FormRow[K]) =>
     setState((p) => ({ ...p, [k]: v }));
 
-  const publicUrl = `${origin}/f/${state.slug}`;
+  const publicUrl = formUrl(state.slug);
   const embed = `<iframe src="${publicUrl}?embed=1" width="100%" height="620" style="border:0;border-radius:14px" title="${state.name}"></iframe>`;
 
   const addField = (key: string) => {

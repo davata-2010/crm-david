@@ -28,6 +28,7 @@ import {
 import { eur, shortDate } from "@/lib/format";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import type { Deal } from "@/lib/types";
+import { contactHref, dealHref } from "@/lib/routes";
 
 export default function PipelineBoard({ deals }: { deals: Deal[] }) {
   const router = useRouter();
@@ -146,13 +147,13 @@ export default function PipelineBoard({ deals }: { deals: Deal[] }) {
   function cardMenu(d: Deal): MenuItem[] {
     return [
       { kind: "label", label: d.name },
-      { label: "Abrir deal", icon: "↗", onSelect: () => router.push(`/deals/${d.id}`) },
+      { label: "Abrir deal", icon: "↗", onSelect: () => router.push(dealHref(d.id)) },
       {
         label: "Abrir en pestaña nueva",
         icon: "⧉",
-        onSelect: () => window.open(`/deals/${d.id}`, "_blank"),
+        onSelect: () => window.open(dealHref(d.id), "_blank"),
       },
-      { label: "Editar", icon: "✎", onSelect: () => router.push(`/deals/${d.id}?edit=1`) },
+      { label: "Editar", icon: "✎", onSelect: () => router.push(`${dealHref(d.id)}&edit=1`) },
       {
         label: "Duplicar",
         icon: "⧉",
@@ -163,12 +164,12 @@ export default function PipelineBoard({ deals }: { deals: Deal[] }) {
         label: "Abrir contacto",
         icon: "◍",
         disabled: !d.contact_id,
-        onSelect: () => router.push(`/contacts/${d.contact_id}`),
+        onSelect: () => router.push(contactHref(d.contact_id)),
       },
       {
         label: "Añadir tarea",
         icon: "✓",
-        onSelect: () => router.push(`/deals/${d.id}?task=1`),
+        onSelect: () => router.push(`${dealHref(d.id)}&task=1`),
       },
       {
         label: "Copiar valor",
@@ -460,7 +461,7 @@ function Draggable({
       onContextMenu={(e) => openMenu(e, menu(deal))}
       onClick={() => {
         if (Date.now() - lastDragEnd.current < 250) return;
-        router.push(`/deals/${deal.id}`);
+        router.push(dealHref(deal.id));
       }}
       style={{ opacity: dimmed ? 0.4 : 1 }}
       className="cursor-grab outline-none active:cursor-grabbing"

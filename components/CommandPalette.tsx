@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { GOLD, STAGES } from "@/lib/constants";
 import { eur, initials } from "@/lib/format";
+import { companyHref, contactHref, dealHref } from "@/lib/routes";
 
 type Row = {
   id: string;
@@ -101,7 +102,7 @@ export default function CommandPalette() {
           kind: "contact" as const,
           title: r.name,
           sub: [company?.name, r.email].filter(Boolean).join(" · ") || "Contacto",
-          href: `/contacts/${r.id}`,
+          href: contactHref(r.id),
           icon: initials(r.name),
         };
       }),
@@ -114,7 +115,7 @@ export default function CommandPalette() {
           sub: `${eur(Number(r.value))} · ${STAGES[r.stage]}${
             company?.name ? ` · ${company.name}` : ""
           }`,
-          href: `/deals/${r.id}`,
+          href: dealHref(r.id),
           icon: "▦",
         };
       }),
@@ -123,7 +124,7 @@ export default function CommandPalette() {
         kind: "company" as const,
         title: r.name,
         sub: r.industry || "Empresa",
-        href: `/companies/${r.id}`,
+        href: companyHref(r.id),
         icon: "▤",
       })),
       ...actions,

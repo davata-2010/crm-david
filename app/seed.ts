@@ -1,7 +1,6 @@
-"use server";
+"use client";
 
-import { revalidatePath } from "next/cache";
-import { getSession } from "@/lib/workspace";
+import { notifyChanged, requireSession } from "@/lib/session-client";
 
 const COMPANIES = [
   { name: "Northbeam", industry: "Logística", website: "northbeam.io" },
@@ -62,7 +61,7 @@ const dateAhead = (d: number) =>
 
 /** Rellena el workspace con el set de datos del handoff. Todo va a Supabase. */
 export async function seedDemoData() {
-  const s = await getSession();
+  const s = await requireSession();
   const supabase = s.supabase;
   const user = { id: s.userId, email: s.email };
   const ws = s.workspace.id;
@@ -165,7 +164,7 @@ export async function seedDemoData() {
 
   // Si ya había actividades, no se duplican: el resto del set ya está puesto.
   if ((activityCount.count ?? 0) > 0) {
-    revalidatePath("/", "layout");
+    notifyChanged(true);
     return {};
   }
 
@@ -258,6 +257,6 @@ export async function seedDemoData() {
     role: "Head of Growth",
   });
 
-  revalidatePath("/", "layout");
+  notifyChanged(true);
   return {};
 }
