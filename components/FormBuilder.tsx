@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useChrome } from "@/components/AppChrome";
 import { saveForm, deleteForm } from "@/app/automations";
 import { GOLD } from "@/lib/constants";
-import { formUrl } from "@/lib/config";
+import { formPage, formSnippet, type FormSpec } from "@/lib/form-html";
 
 export type FormField = {
   key: string;
@@ -47,8 +47,14 @@ export default function FormBuilder({ form }: { form: FormRow }) {
   const set = <K extends keyof FormRow>(k: K, v: FormRow[K]) =>
     setState((p) => ({ ...p, [k]: v }));
 
-  const publicUrl = formUrl(state.slug);
-  const embed = `<iframe src="${publicUrl}?embed=1" width="100%" height="620" style="border:0;border-radius:14px" title="${state.name}"></iframe>`;
+  const spec: FormSpec = {
+    slug: state.slug,
+    title: state.title,
+    description: state.description,
+    fields: state.fields,
+    submitLabel: state.submit_label,
+  };
+  const snippet = formSnippet(spec);
 
   const addField = (key: string) => {
     if (state.fields.some((f) => f.key === key)) return;
@@ -276,14 +282,23 @@ export default function FormBuilder({ form }: { form: FormRow }) {
           >
             Guardar
           </button>
-          <a
-            href={publicUrl}
-            target="_blank"
-            rel="noreferrer"
+          <button
+            onClick={() => {
+              const blob = new Blob([formPage(spec)], { type: "text/html" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${state.slug || "formulario"}.html`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              toast("Página descargada.");
+            }}
             className="rounded-[10px] border border-[rgba(245,245,245,0.12)] px-4 py-2.5 text-[13px] text-ink-150 hover:text-gold"
           >
-            Ver publicado
-          </a>
+            Descargar la página
+          </button>
           <div className="flex-1" />
           <button
             onClick={async () => {
@@ -339,12 +354,17 @@ export default function FormBuilder({ form }: { form: FormRow }) {
         </div>
 
         <div className="panel p-5">
-          <div className="text-[11px] uppercase tracking-[0.1em] text-ink-350">Compartir</div>
-          <Copy label="Enlace directo" value={publicUrl} toast={toast} />
-          <Copy label="Insertar en tu web" value={embed} toast={toast} mono />
+          <div className="text-[11px] uppercase tracking-[0.1em] text-ink-350">Publicar</div>
+          <p className="mt-2 text-[11.5px] leading-[1.6] text-ink-350">
+            Aurum ya no se aloja en ningún sitio, así que el formulario se entrega como
+            código. Pégalo en tu web y funciona; o descarga la página entera y súbela
+            donde quieras.
+          </p>
+          <Copy label="Pegar en tu web" value={snippet} toast={toast} mono clamp />
           <p className="mt-3 text-[11px] leading-[1.6] text-ink-450">
-            Cada envío crea el contacto (sin duplicar si el email ya existe), lo registra en su
-            timeline y dispara las automatizaciones con el disparador «Se envía un formulario».
+            No depende de nada externo. Cada envío crea el contacto (sin duplicar si el
+            email ya existe), lo registra en su timeline y dispara las automatizaciones
+            con el disparador «Se envía un formulario».
           </p>
         </div>
       </div>
@@ -366,11 +386,14 @@ function Copy({
   value,
   toast,
   mono,
+  clamp,
 }: {
   label: string;
   value: string;
   toast: (t: string) => void;
   mono?: boolean;
+  /** El código del formulario es largo: se muestra recortado y con scroll. */
+  clamp?: boolean;
 }) {
   return (
     <div className="mt-3">
@@ -379,7 +402,7 @@ function Copy({
         <code
           className={`min-w-0 flex-1 break-all rounded-[8px] border border-hair bg-ink-925 px-2.5 py-2 text-[11px] text-ink-150 ${
             mono ? "font-mono" : ""
-          }`}
+          } ${clamp ? "block max-h-[150px] overflow-auto whitespace-pre-wrap" : ""}`}
         >
           {value}
         </code>

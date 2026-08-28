@@ -5,7 +5,6 @@ import PageHeader from "@/components/PageHeader";
 import PageSkeleton from "@/components/PageSkeleton";
 import { NewFormButton } from "@/components/NewWorkflowButton";
 import { useData, useSession } from "@/components/SessionGate";
-import { formUrl } from "@/lib/config";
 import { GOLD } from "@/lib/constants";
 import { relative } from "@/lib/format";
 import type { FormRow } from "@/components/FormBuilder";
@@ -67,7 +66,7 @@ export default function FormsPage() {
                   <span className="tnum text-[11px] text-ink-400">{f.submissions} envíos</span>
                 </div>
                 <div className="mt-1.5 truncate pl-[20px] font-mono text-[11px] text-ink-400">
-                  {formUrl(f.slug)}
+                  {f.slug}
                 </div>
                 <div className="mt-1 pl-[20px] text-[11.5px] text-ink-350">
                   {f.fields?.length ?? 0} campos

@@ -1,10 +1,18 @@
 # Aurum · AI Agency CRM
 
-Implementación del handoff de Claude Design `Aurum CRM.dc.html` en **Next.js 14 (App Router) + TypeScript + Tailwind + Supabase**.
+Implementación del handoff de Claude Design `Aurum CRM.dc.html` en **Next.js 14 + TypeScript + Tailwind + Supabase**.
 
-**En producción:** https://crm-david-538.netlify.app
+**Aurum no se aloja: se instala.** No hay servidor propio ni alojamiento web.
+La aplicación se compila a ficheros estáticos que van dentro del instalador de
+escritorio y del APK, y habla directamente con Supabase, donde están los datos.
 
-Cada push a `main` despliega automáticamente en Netlify.
+| | |
+|---|---|
+| Ordenador | `npm run desktop:dist` → `desktop/dist/Aurum-CRM-Instalador-1.0.0.exe` |
+| Móvil | `android/build-apk.ps1` → `android/dist/Aurum-CRM-1.0.0.apk` |
+
+Lo único que sigue atendiendo llamadas de fuera son cinco funciones en Supabase
+(ver [Lo que vive en Supabase](#lo-que-vive-en-supabase)).
 
 ## Puesta en marcha
 
@@ -23,7 +31,9 @@ Si cambias el esquema, vuelve a ejecutar el fichero en el [SQL Editor](https://s
 ### 2. Arrancar
 
 ```bash
-npm install && npm run dev
+npm install && npm run dev      # desarrollo, en el navegador
+npm run build                   # exportación estática en out/
+npm run desktop                 # compila y abre la aplicación de escritorio
 ```
 
 Regístrate en `/login` con email y contraseña. En el dashboard vacío puedes pulsar **Cargar datos de ejemplo** para poblar el workspace con el set del handoff (8 empresas, 8 contactos, 10 deals y su timeline) — todo se escribe en Supabase.
@@ -103,7 +113,7 @@ El pipeline kanban especializado sigue en `/pipeline` con sus etapas, forecast p
 
 En cualquier texto se puede usar `{{name}}`, `{{email}}` o cualquier campo del registro; se sustituye al ejecutarse.
 
-El motor vive en TypeScript y se dispara desde las propias acciones del CRM. Postgres guarda la definición, el historial paso a paso de cada ejecución y las esperas pendientes. Un trabajo de `pg_cron` llama cada minuto a `/api/cron/workflows` (protegido por `CRON_SECRET`) para reanudar lo que ya venció.
+El motor vive en TypeScript y se dispara desde las propias acciones del CRM. Postgres guarda la definición, el historial paso a paso de cada ejecución y las esperas pendientes. Un trabajo de `pg_cron` llama cada minuto a la función `cron-workflows` (protegida por `CRON_SECRET`) para reanudar lo que ya venció.
 
 Si una automatización falla, la ejecución queda marcada con el error y **no rompe la acción del usuario que la disparó**.
 
@@ -127,7 +137,7 @@ Los dos JSON también se pueden descargar a mano («JSON para n8n», «Blueprint
 **La API que ejecutan esos workflows:**
 
 ```
-POST /api/automation/action
+POST https://<proyecto>.supabase.co/functions/v1/automation-action
 X-Api-Key: aur_live_…
 { "action": "add_tag", "entity": "contacts", "id": "…", "value": "vip" }
 ```
@@ -138,12 +148,36 @@ Acciones: `get_record` · `add_tag` · `remove_tag` · `set_status` · `set_stag
 
 ### Formularios de captación
 
-`/forms` — constructor de formularios con página pública propia.
+`/forms` — constructor de formularios que se entregan como código.
 
 - Campos configurables: nombre, email, teléfono, empresa, mensaje y campos personalizados; cada uno con su etiqueta, tipo y obligatoriedad.
-- Página pública en `/f/<slug>` y snippet `<iframe>` para incrustar en cualquier web.
+- **Se publican pegando**: el constructor da el HTML completo del formulario, sin dependencias externas, para pegarlo en cualquier web; o descarga la página entera para subirla donde quieras. Aurum ya no aloja nada, y Supabase tampoco puede: su pasarela devuelve todo como `text/plain` con `sandbox` en el dominio compartido, así que no se pueden servir páginas HTML desde una función. Lo que sí vive allí es el endpoint que recibe los envíos.
 - Cada envío crea el contacto —**sin duplicar si el email ya existe**, en ese caso añade otra actividad—, crea la empresa si hace falta, aplica las etiquetas del formulario, lo registra en el timeline y dispara las automatizaciones.
 - Vista previa en vivo mientras editas.
+
+### Lo que vive en Supabase
+
+Cinco funciones, en el mismo proyecto que guarda los datos. Son lo único que
+atiende llamadas de fuera, porque tienen que hacerlo: un cliente no puede abrir
+una página que vive en tu móvil.
+
+| Función | Para qué | Protección |
+|---|---|---|
+| `leads` | Alta de contactos desde una web, un anuncio o cualquier integración | Clave del workspace (`aur_live_…`) |
+| `form-submit` | Recibe los envíos de los formularios de captación | El slug del formulario, que debe existir y estar activo |
+| `automation-action` | Las nueve acciones del CRM que ejecutan n8n y Make | Clave del workspace |
+| `cron-workflows` | Reanuda las automatizaciones que estaban esperando | `CRON_SECRET`; la llama pg_cron cada minuto |
+| `ai` | El asistente | El JWT del usuario: sólo ve lo que él vería |
+
+```bash
+npm run edge:deploy      # copia el código compartido y despliega
+supabase secrets set CRON_SECRET=…
+```
+
+El motor de automatizaciones no se duplica: `npm run edge:sync` copia
+`lib/workflows.ts`, `lib/constants.ts` y `lib/format.ts` a
+`supabase/functions/_shared/`, así que no pueden divergir. Editar esas copias a
+mano no sirve de nada — el siguiente despliegue las pisa.
 
 ### Menú contextual propio
 
@@ -152,7 +186,7 @@ El clic derecho está capturado en toda la aplicación y ofrece acciones según 
 ### API de captación de leads
 
 ```
-POST /api/leads
+POST https://<proyecto>.supabase.co/functions/v1/leads
 X-Api-Key: aur_live_…
 { "name": "...", "email": "...", "company": "...", "tags": "a,b", "message": "..." }
 ```
@@ -163,11 +197,21 @@ Crea el contacto, la empresa si no existe y la primera actividad. Si el email ya
 
 Botones de resumen de cuenta, borrador de email de seguimiento y puntuación de lead en la ficha de contactos y deals. Cada llamada arma un briefing con los datos reales del registro y su historial.
 
-**Requiere configurar `ANTHROPIC_API_KEY`** en las variables de entorno de Netlify. Sin ella, los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
+Se ejecuta en Supabase, no en la aplicación: la clave de Anthropic no puede
+viajar dentro de un instalador ni de un APK, donde cualquiera podría leerla. La
+petición va firmada con el JWT de quien pregunta, así que las consultas se hacen
+con su sesión y las RLS siguen aplicando.
+
+```bash
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-…
+```
+
+Sin esa clave los botones responden con un aviso explicando qué falta; el resto del CRM funciona igual.
 
 ### Aplicación Android (APK)
 
-`android/` es un proyecto **TWA** (Trusted Web Activity): un APK real que abre el CRM a pantalla completa, sin barra de direcciones y sin pasar por el navegador.
+`android/` es un APK que **lleva el CRM dentro**: la exportación estática viaja
+en `assets/web/`. No abre ninguna URL ni pasa por el navegador.
 
 ```powershell
 $env:AURUM_KEYSTORE_PASS = "..."
@@ -175,9 +219,20 @@ powershell -ExecutionPolicy Bypass -File androiduild-apk.ps1
 # genera android\dist\Aurum-CRM-1.0.0.apk
 ```
 
-Requiere Android Studio (aporta el JDK y el SDK). El APK pesa **menos de 1 MB** porque el render lo hace el motor del navegador del sistema, no un motor incrustado.
+Requiere Android Studio (aporta el JDK y el SDK) y haber hecho `npm run build`
+antes: el script copia `out/` a los assets. El APK pesa **menos de 2 MB** porque
+el render lo hace el WebView del sistema, no un motor incrustado.
 
-**La vinculación con el dominio es lo que quita la barra de URL.** `public/.well-known/assetlinks.json` publica la huella SHA-256 del certificado de firma, y el APK declara el dominio en `asset_statements`. Si se cambia la clave de firma hay que actualizar ese fichero, o la app volverá a mostrar la barra.
+Dos detalles del empaquetado que, mal resueltos, dejan la aplicación en negro:
+
+- aapt ignora por defecto las carpetas que empiezan por guión bajo, y Next pone
+  todo su JavaScript en `_next/`. Por eso `app/build.gradle` ajusta
+  `ignoreAssetsPattern`.
+- Se sirve con `WebViewAssetLoader` bajo `appassets.androidplatform.net`, que es
+  un origen **https** de verdad. Con `file://` no habría almacenamiento local
+  —donde Supabase guarda la sesión— y las llamadas a la API fallarían por CORS.
+  `WebAssets.java` resuelve cada ruta a su fichero (`/contacts/` →
+  `contacts/index.html`), algo que el handler que trae la librería no hace.
 
 La clave de firma (`android/aurum.keystore`) **no está en el repositorio**. Para regenerarla:
 
@@ -189,16 +244,23 @@ Los iconos de las cinco densidades los genera `npm run icons`, igual que los de 
 
 ### Aplicación de escritorio (Electron)
 
-`desktop/` contiene un envoltorio de Electron que empaqueta Aurum como aplicación nativa de Windows, sin pasar por ningún navegador.
+`desktop/` empaqueta Aurum como aplicación de Windows, con la exportación
+estática dentro.
 
 ```bash
-cd desktop
-npm install
-npm run dist        # genera instalador y portable en desktop/dist
-npm start           # ejecuta sin empaquetar, para probar
+npm run desktop:dist     # compila la app y genera instalador y portable
+npm run desktop          # compila y la abre sin empaquetar, para probar
 ```
 
-Carga el sitio publicado, así que **se actualiza sola** con cada despliegue: no hay que reinstalar nada al cambiar el CRM.
+Se sirve por un esquema propio, `aurum://app`, en vez de `file://`: un origen de
+fichero no tiene almacenamiento propio, y ahí es donde Supabase guarda la
+sesión. El handler se registra **en la partición de la ventana**, no en la
+sesión por defecto — en la equivocada, la ventana se abre en blanco — y declara
+el `Content-Type` de cada fichero, sin el cual Chromium no reconoce el índice
+como HTML.
+
+Al llevar la aplicación dentro, actualizar el CRM significa volver a generar el
+instalador.
 
 - Sesión persistente en su propia partición, así que el login se mantiene entre arranques.
 - Menú en español con atajos: `Ctrl+1` a `Ctrl+5` para saltar de sección, `Ctrl+N` para una ventana nueva.

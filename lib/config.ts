@@ -22,10 +22,14 @@ export const ACTION_URL = `${FUNCTIONS_BASE}/automation-action`;
 /** Alta de leads desde una web, un anuncio o cualquier integración. */
 export const LEADS_URL = `${FUNCTIONS_BASE}/leads`;
 
-/** Página pública de un formulario de captación. */
-export const formUrl = (slug: string) => `${FUNCTIONS_BASE}/form/${slug}`;
-
-/** Endpoint al que envía ese formulario. */
+/**
+ * Endpoint al que envía el formulario público.
+ *
+ * No hay página alojada que valga: la pasarela de Supabase devuelve todo como
+ * `text/plain` con `sandbox` en su dominio compartido, así que no se pueden
+ * servir páginas HTML desde una función. El formulario se entrega como código
+ * (ver `lib/form-html.ts`) y es esa página, esté donde esté, la que llama aquí.
+ */
 export const FORM_SUBMIT_URL = `${FUNCTIONS_BASE}/form-submit`;
 
 /** Asistente: se ejecuta en Supabase para no exponer la clave de Anthropic. */
