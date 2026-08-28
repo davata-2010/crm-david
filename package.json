@@ -5,16 +5,18 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:check": "node scripts/check-db.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "edge:sync": "node scripts/sync-edge-shared.mjs",
+    "edge:deploy": "npm run edge:sync && supabase functions deploy",
+    "desktop": "npm run build && npm --prefix desktop run start",
+    "desktop:dist": "npm run build && npm --prefix desktop run dist"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
     "@dnd-kit/core": "^6.1.0",
-    "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "next": "^14.2.35",
     "react": "^18.3.1",
