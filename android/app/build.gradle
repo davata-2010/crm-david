@@ -30,6 +30,16 @@ android {
     }
   }
 
+  androidResources {
+    // El patrón por defecto de aapt incluye `<dir>_*`, que se salta cualquier
+    // carpeta que empiece por guión bajo. Next pone TODO su JavaScript y su
+    // CSS en `_next/`, así que con el patrón por defecto el APK se quedaba con
+    // los HTML y sin código: la aplicación abría en negro. Éste es el mismo
+    // patrón menos esa regla.
+    ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    noCompress 'woff2'
+  }
+
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_17
     targetCompatibility JavaVersion.VERSION_17
@@ -37,6 +47,7 @@ android {
 }
 
 dependencies {
-  implementation 'androidx.browser:browser:1.8.0'
-  implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+  // Publica los ficheros de assets/ bajo un origen https real, que es lo que
+  // necesita el almacenamiento local donde Supabase guarda la sesión.
+  implementation 'androidx.webkit:webkit:1.12.1'
 }
